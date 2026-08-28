@@ -1,0 +1,21 @@
+{
+  "name": "poker-online",
+  "version": "1.0.0",
+  "description": "德州扑克联机版：账号体系 + 房间 + 服务端权威牌局引擎",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "vendor": "node tools/vendor.js",
+    "build": "node tools/build-static.js",
+    "test": "node tools/e2e.js 4 8",
+    "test:edge": "node tools/edge.js"
+  },
+  "keywords": ["poker", "texas-holdem", "websocket"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}

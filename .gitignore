@@ -1,0 +1,22 @@
+# 依赖
+node_modules
+
+# 运行时数据：账号库 users.json（含密码哈希+盐），绝不入库
+data
+
+# 构建产物（由 tools/build-static.js 重新生成）
+dist
+
+# 日志
+*.log
+server.log
+server-out.log
+run.log
+dbg.log
+
+# 系统
+.DS_Store
+
+# 测试截图产物
+tools/shots/
+*.png

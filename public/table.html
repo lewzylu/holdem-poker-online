@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>牌桌 · 德州扑克</title>
+<link rel="stylesheet" href="/shared/css/style.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">♠ 德州扑克</div>
+  <div class="tinfo">
+    <span id="room-tag">房间 —</span>
+    <span class="sep">·</span>
+    <span id="blind-tag2">盲注 —</span>
+    <span class="sep">·</span>
+    <span id="hand-tag">第 0 手</span>
+  </div>
+  <div class="me">
+    <span id="me-name2">—</span>
+    <span class="chip-badge" id="me-chips2">0</span>
+    <span class="chip-badge table-chips" id="me-table">桌上 0</span>
+  </div>
+  <div class="topbtns">
+    <button id="btn-panel" class="ghost panel-toggle">记录</button>
+    <button id="btn-rebuy" class="ghost">补给</button>
+    <button id="btn-stand" class="ghost">站起</button>
+    <button id="btn-lobby" class="ghost">返回大厅</button>
+  </div>
+</header>
+
+<div class="layout">
+  <main class="table-main">
+    <div class="table-wrap">
+      <div class="felt">
+        <div class="table-top">
+          <div class="phase-tag" id="phase">准备</div>
+          <div class="pot" id="pot"><span class="label">底池</span><b>0</b></div>
+          <div class="blind-tag" id="blind">—</div>
+        </div>
+        <div class="board" id="board"></div>
+        <div class="seats" id="seats"></div>
+        <div class="waiting" id="waiting" hidden>牌局未开始，等待房主开局…</div>
+      </div>
+    </div>
+
+    <div class="action-bar" id="action-bar">
+      <div class="prompt" id="prompt">等待发牌…</div>
+      <div class="buttons">
+        <button id="btn-fold" class="act fold" disabled>弃牌 <kbd>F</kbd></button>
+        <button id="btn-call" class="act call" disabled>跟注 <kbd>C</kbd></button>
+        <div class="raise-box">
+          <input type="range" id="raise-slider" min="0" max="100" value="0" disabled>
+          <div class="quick" id="quick">
+            <button data-frac="0.5" disabled>1/2 池</button>
+            <button data-frac="0.66" disabled>2/3 池</button>
+            <button data-frac="1" disabled>1 池</button>
+          </div>
+        </div>
+        <button id="btn-raise" class="act raise" disabled>加注 <kbd>R</kbd></button>
+        <button id="btn-allin" class="act allin" disabled>全下 <kbd>A</kbd></button>
+        <div class="timer" id="timer" hidden><span id="timer-bar"></span></div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="side">
+    <div class="panel">
+      <h3>座位</h3>
+      <table class="score" id="score"><tbody></tbody></table>
+    </div>
+    <div class="panel grow">
+      <h3>牌局记录</h3>
+      <div class="log" id="log"></div>
+    </div>
+    <div class="panel">
+      <h3>聊天</h3>
+      <div id="chat" class="chat small"></div>
+      <div class="chat-input">
+        <input id="chat-text" type="text" maxlength="120" placeholder="说点什么…">
+        <button id="chat-send" class="ghost">发送</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="result-float" id="result" hidden></div>
+<div id="toast" class="toast"></div>
+
+<script src="/shared/js/cards.js"></script>
+<script src="/js/net.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/table.js"></script>
+</body>
+</html>

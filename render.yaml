@@ -1,0 +1,19 @@
+# Render.com 蓝图：推送到 GitHub 后在 Render 里 New → Blueprint 即可
+services:
+  - type: web
+    name: poker-online
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev --no-audit --no-fund
+    startCommand: node server/server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: HOST
+        value: 0.0.0.0
+    # 账号与资产持久化（免费套餐也支持 1GB 磁盘）
+    disk:
+      name: poker-data
+      mountPath: /app/data
+      sizeGB: 1

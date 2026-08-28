@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>德州扑克 · 联机版</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="auth-body">
+
+<div class="auth-card">
+  <div class="logo">♠️♥️</div>
+  <h1>德州扑克<span>联机版</span></h1>
+  <p class="sub">注册即送 <b>5000</b> 筹码，和朋友开个房间就能打</p>
+
+  <div class="tabs">
+    <button id="tab-login" class="on">登录</button>
+    <button id="tab-reg">注册</button>
+  </div>
+
+  <form id="form" autocomplete="off">
+    <input id="name" type="text" placeholder="昵称（2–12 字，中英文数字）" maxlength="12">
+    <input id="pw" type="password" placeholder="密码（至少 6 位）" maxlength="32">
+    <input id="pw2" type="password" placeholder="再输入一次密码" maxlength="32" hidden>
+    <div class="err" id="err"></div>
+    <button type="submit" class="primary" id="go">登录</button>
+  </form>
+
+  <div class="conn" id="conn">连接中…</div>
+  <div class="srv">
+    <a href="#" id="srv-set">⚙ 服务器设置</a>
+    <span id="srv-now"></span>
+  </div>
+</div>
+
+<script src="/js/net.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/login.js"></script>
+</body>
+</html>

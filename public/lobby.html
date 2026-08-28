@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>大厅 · 德州扑克</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">♠️ 德州扑克 <span>联机版</span></div>
+  <div class="me">
+    <span id="me-name">—</span>
+    <span class="chip-badge" id="me-chips">0</span>
+    <span class="conn-tip" id="conn-tip"></span>
+  </div>
+  <button id="btn-logout" class="ghost">退出登录</button>
+</header>
+
+<main class="lobby">
+  <section class="col">
+    <div class="panel">
+      <h3>房间列表 <button id="refresh" class="mini">刷新</button></h3>
+      <div id="room-list" class="room-list"></div>
+    </div>
+
+    <div class="panel">
+      <h3>开一个新局</h3>
+      <div class="form-grid">
+        <label>房间名<input id="c-title" type="text" maxlength="20" placeholder="周五好友局"></label>
+        <label>小盲<input id="c-sb" type="number" value="5" min="1"></label>
+        <label>大盲<input id="c-bb" type="number" value="10" min="2"></label>
+        <label>默认买入<input id="c-buyin" type="number" value="1000" min="100"></label>
+      </div>
+      <button id="create" class="primary">创建房间</button>
+      <div class="join-row">
+        <input id="join-id" type="text" maxlength="6" placeholder="输入房间号">
+        <button id="join" class="ghost">加入</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="col">
+    <div class="panel">
+      <h3 id="room-title">未加入房间</h3>
+      <div id="room-meta" class="room-meta"></div>
+      <div id="seats" class="seat-grid"></div>
+      <div id="room-ops" class="ops"></div>
+    </div>
+
+    <div class="panel grow">
+      <h3>聊天</h3>
+      <div id="chat" class="chat"></div>
+      <div class="chat-input">
+        <input id="chat-text" type="text" maxlength="120" placeholder="说点什么…">
+        <button id="chat-send" class="ghost">发送</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script src="/shared/js/cards.js"></script>
+<script src="/js/net.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/lobby.js"></script>
+</body>
+</html>
