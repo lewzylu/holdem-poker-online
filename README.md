@@ -147,3 +147,4 @@ node tools/render-check.js    # 真实 Chromium：底牌是否横排、日志行
 - 盲注/买入上限：`server/db.js` 的 `MIN_BUYIN / MAX_BUYIN`，以及 `room.sit()` 里的 `bb * 200` 封顶
 - 注册赠送：`server/db.js` 的 `START_CHIPS`
 - 规则与 AI：改 `../poker/js/` 下对应文件，然后 `npm run vendor` 同步副本
+# holdem-poker-online
