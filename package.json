@@ -8,7 +8,9 @@
     "vendor": "node tools/vendor.js",
     "build": "node tools/build-static.js",
     "test": "node tools/e2e.js 4 8",
-    "test:edge": "node tools/edge.js"
+    "test:edge": "node tools/edge.js",
+    "test:nav": "node tools/nav-test.js",
+    "test:layout": "node tools/layout-test.js"
   },
   "keywords": ["poker", "texas-holdem", "websocket"],
   "author": "",
@@ -17,5 +19,8 @@
   "engines": { "node": ">=18" },
   "dependencies": {
     "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.1"
   }
 }

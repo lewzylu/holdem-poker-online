@@ -7,17 +7,22 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund
 
-# 复制服务端与前端静态资源（vendor/ 是 npm run vendor 生成的核心逻辑副本）
+# 只复制运行必需的部分：server / 前端静态资源 / 核心逻辑副本
+# （tools/ 是开发与自测脚本，不该进镜像）
 COPY server/ ./server/
 COPY public/  ./public/
-COPY tools/   ./tools/
 COPY vendor/  ./vendor/
 
+ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 EXPOSE 3000
 
-# 账号与资产存在 /app/data，挂个卷就不会因为重启丢档
+# 账号与资产存在 /app/data，挂个卷就不会因为重启丢档。
+# 以非 root 运行，先把数据目录的所有权交给 node 用户。
+RUN mkdir -p /app/data && chown -R node:node /app
+USER node
+
 VOLUME ["/app/data"]
 
 CMD ["node", "server/server.js"]

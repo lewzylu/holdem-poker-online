@@ -17,6 +17,5 @@ dbg.log
 # 系统
 .DS_Store
 
-# 测试截图产物
+# 测试截图产物（只忽略截图目录，不要全局忽略 *.png，否则 favicon 等资源无法入库）
 tools/shots/
-*.png

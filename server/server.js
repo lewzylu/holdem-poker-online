@@ -18,7 +18,14 @@ const { Room } = require('./room.js');
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
-const SHARED_DIR = path.join(__dirname, '..', '..', 'poker');   // 复用单机版的 cards.js / engine.js / style.css
+
+/* 单条 WS 消息上限：ws 默认 100MB，一条畸形包就够把内存吃光 */
+const MAX_PAYLOAD = 64 * 1024;
+/* 允许的页面来源（逗号分隔的 host，如 poker.example.com）。留空=不校验，方便局域网/反代直连；
+ * 公网部署建议配上，避免别人的页面拿你的服务端当后端使。 */
+const ALLOW_ORIGINS = (process.env.ALLOW_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+/* 按连接限流：scrypt 登录和全量广播都很贵，不能任由脚本刷 */
+const RATE = { window: 5000, max: 80 };
 
 /* ---------------- 静态资源 ---------------- */
 const MIME = {
@@ -34,18 +41,19 @@ const MIME = {
 const ROUTES = { '/': 'index.html', '/lobby': 'lobby.html', '/table': 'table.html', '/game': 'table.html' };
 
 const server = http.createServer((req, res) => {
-  let url = decodeURIComponent(req.url.split('?')[0]);
+  let url;
+  try { url = decodeURIComponent(req.url.split('?')[0]); }
+  catch (e) { res.writeHead(400); return res.end('bad request'); }
+  // 空字节会让 fs 抛异常，这里直接挡掉
+  if (url.indexOf('\0') >= 0) { res.writeHead(400); return res.end('bad request'); }
   if (url === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     return res.end('ok ' + rooms.size + ' rooms / ' + sockets.size + ' online');
   }
-  let file;
-  if (ROUTES[url]) file = path.join(PUBLIC_DIR, ROUTES[url]);
-  else if (url.startsWith('/shared/')) file = path.join(SHARED_DIR, url.slice('/shared/'.length));
-  else file = path.join(PUBLIC_DIR, url.replace(/^\/+/, ''));
-
-  file = path.normalize(file);
-  if (!file.startsWith(PUBLIC_DIR) && !file.startsWith(SHARED_DIR)) {
+  const file = path.normalize(path.join(PUBLIC_DIR, ROUTES[url] || url.replace(/^\/+/, '')));
+  // 用 path.relative 判定，别用 startsWith：后者会被同前缀的兄弟目录绕过（如 public-bak）
+  const rel = path.relative(PUBLIC_DIR, file);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
     res.writeHead(403); return res.end('forbidden');
   }
   fs.readFile(file, (err, data) => {
@@ -58,7 +66,7 @@ const server = http.createServer((req, res) => {
 /* ---------------- 在线状态 ---------------- */
 const sockets = new Map();          // name -> Set<ws>
 const rooms = new Map();            // roomId -> Room
-const wsMeta = new Map();           // ws -> { name, roomId, alive }
+const wsMeta = new Map();           // ws -> { name, roomId, alive, winStart, hits }
 
 function online(name) {
   const s = sockets.get(name);
@@ -73,13 +81,42 @@ function send(name, msg) {
 function sendWs(ws, msg) {
   try { ws.send(JSON.stringify(msg)); } catch (e) { /* ignore */ }
 }
+/** 8 位房间号。用 crypto.randomInt 而不是 randomBytes % len：后者有取模偏差，
+ *  而且 6 位只有 34^6≈15 亿种，配合无限制的 joinRoom 能被枚举进来「串门」。 */
 function newRoomId() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // 去掉易混淆的 I/O/0/1
   let id;
   do {
-    id = Array.from(crypto.randomBytes(6)).map(b => chars[b % chars.length]).join('');
+    id = '';
+    for (let i = 0; i < 8; i++) id += chars[crypto.randomInt(chars.length)];
   } while (rooms.has(id));
   return id;
+}
+
+/* 掉线倒计时句柄：重连后要能取消，否则会攒下一堆没人管的定时器 */
+const dropTimers = new Map();          // name -> timeout
+function cancelDrop(name) {
+  const t = dropTimers.get(name);
+  if (t) { clearTimeout(t); dropTimers.delete(name); }
+}
+
+/** 简单令牌桶：挡住脚本刷接口（scrypt 登录 + 全量广播都很贵） */
+function tooFast(ws) {
+  const m = wsMeta.get(ws);
+  if (!m) return true;
+  const now = Date.now();
+  if (now - m.winStart > RATE.window) { m.winStart = now; m.hits = 0; }
+  return ++m.hits > RATE.max;
+}
+
+/** 浏览器页面会有 Origin：配了白名单就只认白名单，没有 Origin 的（命令行/脚本）放行 */
+function originOK(req) {
+  if (!ALLOW_ORIGINS.length) return true;
+  const o = req.headers.origin;
+  if (!o) return true;
+  let host;
+  try { host = new URL(o).host; } catch (e) { return false; }
+  return ALLOW_ORIGINS.indexOf(host) >= 0;
 }
 
 const ctx = {
@@ -89,17 +126,27 @@ const ctx = {
 };
 
 /* ---------------- 消息处理 ---------------- */
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  maxPayload: MAX_PAYLOAD,
+  verifyClient: info => originOK(info.req)
+});
 
 wss.on('connection', ws => {
-  wsMeta.set(ws, { name: null, roomId: null, alive: true });
+  wsMeta.set(ws, { name: null, roomId: null, alive: true, winStart: Date.now(), hits: 0 });
   ws.on('pong', () => { const m = wsMeta.get(ws); if (m) m.alive = true; });
 
   ws.on('message', raw => {
     let msg;
     try { msg = JSON.parse(raw); } catch (e) { return; }
-    try { handle(ws, msg || {}); }
-    catch (e) { console.error('[msg]', msg && msg.type, e); sendWs(ws, { type: 'error', msg: '服务端出错：' + e.message }); }
+    // handle 是 async（注册/登录要用异步 scrypt），reject 必须在这里兜住
+    Promise.resolve()
+      .then(() => handle(ws, msg || {}))
+      .catch(e => {
+        console.error('[msg]', msg && msg.type, e);
+        // 不要把 e.message 回给客户端：内部路径/状态都会漏出去
+        sendWs(ws, { type: 'error', msg: '服务端内部错误' });
+      });
   });
 
   ws.on('close', () => onClose(ws));
@@ -112,13 +159,21 @@ function requireAuth(ws) {
   return m;
 }
 
-function handle(ws, msg) {
+async function handle(ws, msg) {
   const m = wsMeta.get(ws);
+  if (!m) return;
+  // 心跳不计入限流，其余所有消息统一限流
+  if (msg.type !== 'ping' && tooFast(ws)) {
+    return sendWs(ws, { type: 'error', msg: '操作过于频繁，请稍后再试' });
+  }
   switch (msg.type) {
     /* ---- 账号 ---- */
     case 'register':
     case 'login': {
-      const r = msg.type === 'register' ? db.register(msg.name, msg.password) : db.login(msg.name, msg.password);
+      // 注册/登录是异步的：scrypt 用异步接口，不能把事件循环卡住
+      const r = await (msg.type === 'register'
+        ? db.register(msg.name, msg.password)
+        : db.login(msg.name, msg.password));
       if (r.error) return sendWs(ws, { type: 'auth', ok: false, error: r.error });
       m.name = r.user.name;
       addSocket(r.user.name, ws);
@@ -255,6 +310,7 @@ function clampInt(v, min, max, dft) {
 }
 
 function addSocket(name, ws) {
+  cancelDrop(name);                    // 人回来了，撤掉掉线倒计时
   if (!sockets.has(name)) sockets.set(name, new Set());
   sockets.get(name).add(ws);
 }
@@ -276,6 +332,8 @@ function leaveRoom(name, m) {
   if (!room) return;
   room.leave(name);
   if (room.members.size === 0) {
+    // 先中止牌局再退筹码：否则 loop 还挂在这次行动的 Promise 上，房间删了牌局还在空转
+    room.destroy();
     room.refundAll();
     rooms.delete(room.id);
   }
@@ -288,16 +346,18 @@ function onClose(ws) {
   if (m.name) removeSocket(m.name, ws);
   // 所有连接都断了才算离开房间
   if (m.name && m.roomId && !online(m.name)) {
-    const room = rooms.get(m.roomId);
+    const roomId = m.roomId, name = m.name;
+    const room = rooms.get(roomId);
     if (room) {
-      room.pushLog(m.name + ' 掉线', 'system');
+      room.pushLog(name + ' 掉线', 'system');
       room.broadcast();
-      setTimeout(() => {
-        if (!online(m.name)) {
-          const r = rooms.get(m.roomId);
-          if (r && r.members.has(m.name)) leaveRoom(m.name, { roomId: m.roomId });
-        }
-      }, 60000);   // 掉线保留座位 60 秒
+      // 记下句柄：重连时 addSocket 会把它取消掉，不然会攒下一堆没人管的定时器
+      dropTimers.set(name, setTimeout(() => {
+        dropTimers.delete(name);
+        if (online(name)) return;
+        const r = rooms.get(roomId);
+        if (r && r.members.has(name)) leaveRoom(name, { roomId });
+      }, 60000));   // 掉线保留座位 60 秒
     }
   }
 }
