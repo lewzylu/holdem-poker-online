@@ -11,7 +11,14 @@
  */
 (function (root, factory) {
   var Cards = (typeof module !== 'undefined' && module.exports) ? require('./cards.js') : root.Cards;
-  var AI = (typeof module !== 'undefined' && module.exports) ? require('./ai.js') : root.PokerAI;
+  // AI 是可选的：联机局全是真人座位，部署副本里可能根本没有 ai.js。
+  // 硬 require 会让整个引擎加载失败，所以这里容错成 null，真遇到 AI 座位再报错。
+  var AI = null;
+  if (typeof module !== 'undefined' && module.exports) {
+    try { AI = require('./ai.js'); } catch (e) { AI = null; }
+  } else {
+    AI = root.PokerAI;
+  }
   var api = factory(Cards, AI);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PokerEngine = api;
@@ -370,6 +377,7 @@
     var action;
     if (this.aborted) { action = { type: 'fold' }; }
     else if (p.type === 'ai') {
+      if (!AI) throw new Error('座位 ' + p.index + ' 是 AI，但没有加载到 ai.js');
       await this.sleep(this.cfg.aiDelay);
       action = AI.decide(this, p, legal);
     } else {

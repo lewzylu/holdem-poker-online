@@ -1,0 +1,270 @@
+/* table.css —— 牌桌基础样式：布局骨架、牌面、座位、操作条
+ *
+ * 这一层只负责「能看、能用」，所有尺寸微调、响应式与视觉细节由 app.css 覆盖。
+ * 加载顺序必须是 table.css → app.css（后者优先级更高）。
+ *
+ * 注意：牌桌不能依赖任何仓库外部样式，这个文件就是牌桌的全部基础。
+ */
+
+/* ==================== 页面骨架 ==================== */
+/* 左侧牌桌 + 右侧信息栏；app.css 会在窄屏/矮屏下改成单列或抽屉 */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+}
+.table-main { display: flex; flex-direction: column; min-height: 0; }
+.side {
+  display: flex; flex-direction: column; gap: 12px;
+  width: 320px; min-width: 0;
+}
+
+/* ==================== 牌桌 ==================== */
+/* position:relative 很关键：座位是用 left/top 百分比定位在牌桌内的 */
+.felt {
+  position: relative;
+  border-radius: 50%;
+  border: 12px solid #3a2718;                 /* table.js 会读这个宽度来算可用间距 */
+  background:
+    radial-gradient(ellipse at 50% 42%, #1f7a4d 0%, #155c39 55%, #0e4229 100%);
+  box-shadow:
+    inset 0 0 60px rgba(0, 0, 0, .45),
+    0 18px 40px rgba(0, 0, 0, .45);
+}
+
+/* 顶部信息条（阶段 / 底池 / 盲注），app.css 会压成一行胶囊 */
+.table-top {
+  position: absolute; left: 50%; top: 8%;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  pointer-events: none;
+}
+.phase-tag, .pot, .blind-tag { white-space: nowrap; }
+.phase-tag {
+  padding: 2px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  background: rgba(255, 255, 255, .12); color: var(--txt);
+}
+.pot { display: flex; align-items: baseline; gap: 5px; color: var(--gold); }
+.pot .label { font-size: 11px; }
+.pot b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.blind-tag { font-size: 11px; color: var(--txt); }
+
+/* 公共牌：居中偏上，只渲染已发出的牌 */
+.board {
+  position: absolute; left: 50%; top: 42%;
+  transform: translate(-50%, -50%);
+  display: flex; gap: 6px; pointer-events: none;
+}
+
+/* 座位容器铺满牌桌的内容区（inset:0 正好等于 padding box），
+   座位的 left/top 百分比就是相对它算的，与 table.js 的测量口径一致 */
+.seats { position: absolute; inset: 0; }
+
+/* ==================== 座位 ==================== */
+.seat {
+  position: absolute;
+  transform: translate(-50%, -50%);      /* left/top 是座位中心点 */
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 4px; border-radius: 12px;
+  background: rgba(0, 0, 0, .35);
+  z-index: 2;
+  transition: opacity .2s, box-shadow .2s;
+}
+/* 自己的座位背景交给 ::before 的淡金底（它在 app.css 里 z-index:-1，
+   如果这里再铺一层不透明背景就把它盖住了） */
+.seat.mine { background: transparent; }
+.seat.folded { opacity: .5; }
+.seat.out { opacity: .45; }
+
+.hole { display: flex; gap: 3px; }        /* 两张底牌必须横排，不能跟着 .seat 竖着堆 */
+
+.avatar {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 2px solid var(--line);
+  background: #0e1420; color: var(--txt);
+  font-weight: 700; overflow: hidden; flex-shrink: 0;
+}
+.nm {
+  font-weight: 700; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chips {
+  padding: 1px 8px; border-radius: 999px;
+  background: rgba(0, 0, 0, .45); color: var(--gold);
+  font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.bet {
+  position: absolute; right: -10px; bottom: -10px;
+  padding: 1px 6px; border-radius: 8px;
+  background: #0e1420; border: 1px solid var(--line);
+  color: var(--gold); font-weight: 700; white-space: nowrap;
+}
+.sub {
+  display: flex; gap: 4px; align-items: center; justify-content: center;
+  white-space: nowrap;
+}
+.badge {
+  padding: 0 6px; border-radius: 999px;
+  background: rgba(255, 255, 255, .12); color: var(--txt);
+  font-weight: 700; font-size: 11px; white-space: nowrap;
+}
+.badge.dealer { background: rgba(240, 180, 41, .9); color: #3b2600; }
+.badge.sb, .badge.bb { background: rgba(74, 158, 255, .85); color: #04121f; }
+.badge.allin { background: rgba(255, 95, 86, .9); color: #2b0705; }
+.badge.hand { background: rgba(46, 204, 113, .85); color: #04240f; }
+
+.last, .thinking { color: var(--muted); white-space: nowrap; }
+.thinking { color: var(--gold); }
+
+/* ---- 当前行动者的座位倒计时 ----
+ * 秒数浮在头像上方，absolute 定位，不参与布局。 */
+.seat-sec {
+  position: absolute; top: -9px; right: -6px;
+  min-width: 18px; padding: 0 4px;
+  border-radius: 999px;
+  background: #0e1420; border: 1.5px solid var(--green);
+  color: var(--green);
+  font-size: 11px; font-weight: 800; line-height: 15px; text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none; z-index: 8;
+}
+
+/* ---- 动作反馈浮层 ----
+ * absolute + pointer-events:none：完全脱离布局流。
+ * 座位宽度是遍历椭圆、按「相邻矩形不重叠」反推出来的，
+ * 任何参与布局的新元素都会让那套计算失效、邻座互相压住。 */
+.act-flash {
+  position: absolute; left: 50%; bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 3px;
+  max-width: 160px; padding: 2px 8px;
+  border-radius: 999px; white-space: nowrap;
+  background: rgba(12, 18, 26, .95);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 12px; font-weight: 700;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
+  pointer-events: none; z-index: 12;
+  animation: af-in .18s ease-out;
+}
+.act-flash.gone { animation: af-out .4s ease-in forwards; }
+.act-flash .to-tag {
+  font-style: normal; font-size: 10px; font-weight: 800;
+  padding: 0 4px; border-radius: 3px;
+  background: var(--red); color: #2b0705;
+}
+/* 超时产生的动作用红边，与玩家主动做出的同类动作区分开 */
+.act-flash.by-timeout { border-color: var(--red); color: #ffb3ae; }
+
+@keyframes af-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes af-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* ==================== 牌面 ==================== */
+.card {
+  position: relative;
+  width: 46px; height: 64px;
+  border-radius: 6px;
+  background: linear-gradient(160deg, #ffffff, #e6ebf2);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+  flex-shrink: 0; user-select: none;
+}
+.card .rank { font-weight: 800; font-size: 17px; line-height: 1; }
+.card .suit { font-size: 14px; line-height: 1; }
+.card.red { color: #d7263d; }
+.card.black { color: #16191d; }
+.card.back {
+  background:
+    repeating-linear-gradient(45deg, #1d4ed8 0 6px, #1e40af 6px 12px);
+  border: 2px solid #f1f5f9;
+}
+.card.mini { width: 22px; height: 31px; border-radius: 4px; }
+.card.mini .rank { font-size: 10px; }
+.card.mini .suit { font-size: 9px; }
+
+/* ==================== 操作条 ==================== */
+.action-bar {
+  margin-top: 10px; padding: 8px 12px; border-radius: 12px;
+  background: var(--bg2); border: 1px solid var(--line);
+}
+.prompt { color: var(--muted); font-size: 12px; margin-bottom: 6px; min-height: 16px; }
+.prompt b { color: var(--txt); }
+.buttons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+button.act {
+  min-width: 82px; padding: 9px 14px; border-radius: 9px;
+  border: 1px solid var(--line); background: #101826; color: var(--txt);
+  font-size: 14px; font-weight: 700;
+}
+button.act:hover:not(:disabled) { filter: brightness(1.25); }
+button.act:disabled { opacity: .35; cursor: not-allowed; }
+button.act.fold { border-color: rgba(255, 95, 86, .5); color: #ff8f88; }
+button.act.call { border-color: rgba(46, 204, 113, .5); color: #6ee7a8; }
+button.act.raise { border-color: rgba(240, 180, 41, .5); color: var(--gold); }
+button.act.allin { border-color: rgba(167, 139, 250, .5); color: #c4b5fd; }
+button.act kbd {
+  margin-left: 5px; padding: 0 4px; border-radius: 4px;
+  background: rgba(255, 255, 255, .08); color: var(--muted);
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10px; font-weight: 400;
+}
+
+.raise-box { display: flex; flex-direction: column; gap: 3px; min-width: 170px; }
+#raise-slider { width: 100%; accent-color: var(--gold); }
+#raise-slider:disabled { opacity: .4; }
+.quick { display: flex; gap: 4px; }
+.quick button {
+  flex: 1; padding: 3px 6px; border-radius: 6px;
+  border: 1px solid var(--line); background: transparent; color: var(--muted);
+  font-size: 11px;
+}
+.quick button:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+.quick button:disabled { opacity: .3; cursor: not-allowed; }
+
+/* ==================== 信息栏 ==================== */
+.log { flex: 1; overflow-y: auto; font-size: 12px; line-height: 1.7; min-height: 80px; }
+/* 日志行的 class 是 ln-<kind>，绝不能裸用 kind —— kind='board' 会命中 .board 的绝对定位，
+   那行日志会飘到牌桌正中间。这里再加一道保险。 */
+.log div { position: static !important; }
+.log .ln-system { color: var(--muted); }
+.log .ln-blind { color: var(--muted); }
+.log .ln-fold { color: #7d8ba0; }
+.log .ln-check { color: var(--txt); }
+.log .ln-call { color: var(--txt); }
+.log .ln-raise { color: var(--gold); }
+.log .ln-board { color: var(--blue); }
+.log .ln-win { color: var(--gold); font-weight: 700; }
+
+.score { width: 100%; border-collapse: collapse; font-size: 12px; }
+.score th, .score td {
+  padding: 3px 4px; text-align: left;
+  border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 400;
+}
+.score td { color: var(--txt); font-variant-numeric: tabular-nums; }
+.score tr.out { opacity: .45; }
+
+/* ==================== 弹窗遮罩（UI.modal 用） ==================== */
+.overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, .6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+
+/* ==================== 结算浮层（细节在 app.css） ==================== */
+.result-float .result-board { display: flex; gap: 4px; }
+.result-float .res-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 3px 0;
+}
+.result-float .rname { width: 96px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.result-float .rcards { display: flex; gap: 3px; }
+.result-float .rhand { flex: 1; font-size: 12px; color: var(--muted); }
+.result-float .rwon { color: var(--green); font-weight: 700; font-size: 12px; }
+.result-float .rlost { color: var(--muted); font-size: 12px; }
+.result-float .res-row.iswin { background: rgba(240, 180, 41, .08); border-radius: 6px; }

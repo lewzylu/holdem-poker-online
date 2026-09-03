@@ -8,31 +8,35 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const PUBLIC = path.join(ROOT, 'public');
-const POKER = path.join(ROOT, '..', 'poker');
+
+// 页面里引用的都是站内绝对路径（/js/xxx、/css/xxx），静态托管需要改成相对路径
+const REWRITE = [
+  [/\/css\/table\.css/g, 'css/table.css'],
+  [/\/css\/app\.css/g, 'css/app.css'],
+  [/\/js\/cards\.js/g, 'js/cards.js'],
+  [/\/js\/(net|common|login|lobby|table)\.js/g, 'js/$1.js']
+];
 
 function buildInto(DIST) {
   fs.mkdirSync(DIST, { recursive: true });
 
-  // 页面：把 /shared/xxx 的引用改成本地相对路径
-  ['index.html', 'lobby.html', 'table.html'].forEach(p => {
+  for (const p of ['index.html', 'lobby.html', 'table.html']) {
     let html = fs.readFileSync(path.join(PUBLIC, p), 'utf8');
-    html = html
-      .replace(/\/shared\/js\/cards\.js/g, 'js/cards.js')
-      .replace(/\/shared\/css\/style\.css/g, 'css/table.css');
+    for (const [re, to] of REWRITE) html = html.replace(re, to);
     fs.writeFileSync(path.join(DIST, p), html);
-  });
+  }
 
   const cp = (from, to) => {
     fs.mkdirSync(path.dirname(path.join(DIST, to)), { recursive: true });
     fs.copyFileSync(from, path.join(DIST, to));
   };
-  // 共享代码：牌面渲染 + 牌桌样式
-  cp(path.join(POKER, 'js', 'cards.js'), 'js/cards.js');
-  cp(path.join(POKER, 'css', 'style.css'), 'css/table.css');
-  cp(path.join(PUBLIC, 'css', 'app.css'), 'css/app.css');
+  // 全部资源都来自本仓库，不依赖任何外部目录
+  cp(path.join(PUBLIC, 'js', 'cards.js'), 'js/cards.js');
   ['net.js', 'common.js', 'login.js', 'lobby.js', 'table.js'].forEach(f => {
     cp(path.join(PUBLIC, 'js', f), 'js/' + f);
   });
+  cp(path.join(PUBLIC, 'css', 'table.css'), 'css/table.css');
+  cp(path.join(PUBLIC, 'css', 'app.css'), 'css/app.css');
 }
 
 // Windows 上旧的构建产物偶尔会被其它进程锁住（EPERM），自动换目录而不是直接失败
