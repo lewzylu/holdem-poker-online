@@ -11,7 +11,7 @@
     prompt: $('#prompt'),
     btnFold: $('#btn-fold'), btnCall: $('#btn-call'), btnRaise: $('#btn-raise'),
     btnAllin: $('#btn-allin'), slider: $('#raise-slider'), quick: $('#quick'),
-    timer: $('#timer'), timerBar: $('#timer-bar'),
+    timer: $('#timer'), timerBar: $('#timer-bar'), timerSec: $('#timer-sec'),
     score: $('#score'), log: $('#log'), chat: $('#chat'),
     chatText: $('#chat-text'), chatSend: $('#chat-send'),
     result: $('#result')
@@ -19,6 +19,37 @@
 
   let myName = null, state = null, timerId = null;
   const ACTION_TIMEOUT = 30000;
+
+  /* ---------- 倒计时的共用规则 ----------
+   * 「我的倒计时」和「对手座位状态」必须用同一套阈值，否则同一时刻我看到黄、
+   * 对手座位显示红，两边标准不一致就没法互相参照了。
+   * 阈值：> 11s 充裕 / 8~11s 提醒 / < 8s 紧急。
+   */
+  const TIER_WARN = 11000;
+  const TIER_URGENT = 8000;
+
+  /** 服务端下发的超时时长；拿不到就退回本地常量 */
+  function actionTimeout() {
+    const t = state && state.table ? state.table.actTimeout : 0;
+    return t > 0 ? t : ACTION_TIMEOUT;
+  }
+  /** 剩余毫秒，已夹在 [0, timeout]，不会出现负值 */
+  function msLeft(deadline) {
+    if (!deadline) return 0;
+    return Math.max(0, deadline - Date.now());
+  }
+  /** 剩余整秒。用 ceil：还剩 0.4 秒时显示 1 而不是 0，
+   *  显示 0 会让玩家以为已经超时了但其实还能操作。 */
+  function secLeft(deadline) {
+    return Math.ceil(msLeft(deadline) / 1000);
+  }
+  /** 告警档位：ok / warn / urgent */
+  function tierOf(deadline) {
+    const left = msLeft(deadline);
+    if (left < TIER_URGENT) return 'urgent';
+    if (left <= TIER_WARN) return 'warn';
+    return 'ok';
+  }
 
   // 自己固定在这个角度：PI*0.75 = 135°，即椭圆左下方
   const MY_ANGLE = Math.PI * 0.75;
@@ -88,7 +119,17 @@
   Net.on('auth', m => { if (!m.ok) location.href = 'index.html'; });
   Net.on('error', m => UI.toast(m.msg || '操作失败', 'err'));
   Net.on('notice', m => UI.toast(m.msg));
-  Net.on('state', s => { state = s; render(); });
+  Net.on('state', s => {
+    const prevHand = state && state.table ? state.table.handCount : 0;
+    const prevPhase = state && state.table ? state.table.phase : '';
+    state = s;
+    // 换手 / 回到空闲：上一手的动作反馈必须清掉，否则会残留到下一手的牌桌上
+    const curHand = s.table ? s.table.handCount : 0;
+    const curPhase = s.table ? s.table.phase : '';
+    if (curHand !== prevHand || (curPhase === 'idle' && prevPhase !== 'idle')) clearFlashes();
+    trackActions();
+    render();
+  });
 
   /* ---------- 渲染 ---------- */
   function render() {
@@ -126,6 +167,99 @@
     el.board.style.setProperty('--board-n', b.length);
   }
 
+  /* ---------- 动作反馈（闪现 3 秒） ----------
+   * 判定「这是一次新动作」靠服务端下发的 actionSeq 变化，不比较文案：
+   * 同一轮里两个人都可能是「跟注 50」，比文案会漏判。
+   *
+   * 状态存在 JS 里而不是 DOM 里：renderSeats 是整块重建 innerHTML 的，
+   * 存在 DOM 上会被下一次渲染冲掉。
+   */
+  const FLASH_MS = 3000;
+  const flashes = new Map();       // 座位号 -> { seq, text, byTimeout, until, hand }
+  let seatTickId = null;
+
+  /** 对比 actionSeq，登记新动作。
+   *  每条记录带上「属于第几手」：渲染时只认当前手的记录，反馈天然不跨手。
+   *  不这么做的话换手很难处理 —— 新一手的盲注动作和 handCount 的变化是同一帧到达的，
+   *  「先清空再登记」会让盲注立刻把反馈填回来，看起来就像上一手没清掉。 */
+  function trackActions() {
+    const t = state && state.table;
+    if (!t) return;
+    const hand = t.handCount || 0;
+    (t.seats || []).forEach(s => {
+      if (!s.name || !s.lastAction) return;
+      const seq = s.actionSeq || 0;
+      if (seq <= 0) return;
+      const cur = flashes.get(s.i);
+      // 同一玩家连续行动时：内容更新，驻留计时重新开始
+      if (!cur || cur.seq !== seq) {
+        flashes.set(s.i, {
+          seq: seq, text: s.lastAction, byTimeout: !!s.byTimeout,
+          until: Date.now() + FLASH_MS, hand: hand
+        });
+      }
+    });
+  }
+
+  /** 取某座位当前有效的反馈：跨手的、已到点的都不算 */
+  function flashOf(seatIdx) {
+    const f = flashes.get(seatIdx);
+    if (!f) return null;
+    const hand = (state && state.table) ? (state.table.handCount || 0) : 0;
+    if (f.hand !== hand) return null;          // 属于上一手，不显示
+    if (Date.now() >= f.until) return null;    // 已过 3 秒驻留期
+    return f;
+  }
+
+  /** 牌局整体回到空闲时彻底清空，避免下次开局闪出旧内容 */
+  function clearFlashes() { flashes.clear(); }
+
+  /** 只改 class 与文本，不重建 DOM ——
+   *  重建会让脉冲动画每帧重启，看起来像坏了。 */
+  function tickSeats() {
+    if (!state || !state.table) return;
+    const t = state.table;
+    const nodes = el.seats.querySelectorAll('.seat');
+    let alive = false;
+
+    [].forEach.call(nodes, node => {
+      const i = parseInt(node.dataset.seat, 10);
+
+      // 当前行动者：按剩余时间递进档位（与本人倒计时同一套阈值）
+      if (t.actSeat === i && t.actDeadline) {
+        const tier = tierOf(t.actDeadline);
+        if (node.dataset.tier !== tier) {
+          node.classList.remove('t-ok', 't-warn', 't-urgent');
+          node.classList.add('t-' + tier);
+          node.dataset.tier = tier;
+        }
+        // 少人局时把秒数也显示出来；满桌交给颜色，避免挤爆座位
+        const secNode = node.querySelector('.seat-sec');
+        if (secNode) secNode.textContent = secLeft(t.actDeadline);
+        alive = true;
+      } else if (node.dataset.tier) {
+        node.classList.remove('t-ok', 't-warn', 't-urgent');
+        delete node.dataset.tier;
+      }
+
+      // 动作反馈到点淡出
+      const f = flashOf(i);
+      const box = node.querySelector('.act-flash');
+      if (f) {
+        alive = true;
+      } else if (box && !box.classList.contains('gone')) {
+        box.classList.add('gone');
+      }
+    });
+
+    if (!alive && seatTickId) { clearInterval(seatTickId); seatTickId = null; }
+  }
+
+  function startSeatTick() {
+    if (seatTickId) return;
+    seatTickId = setInterval(tickSeats, 200);
+  }
+
   function renderSeats() {
     const t = state.table;
     const players = t.seats.filter(s => s.name);
@@ -138,8 +272,11 @@
     const n = Math.max(ordered.length, 2);
     const geo = ellipseGeo(n);
     el.seats.style.setProperty('--seat-w', seatWidth(n, geo) + 'px');
-    // 满桌时精简其他人的信息（昵称/上轮动作），把纵向空间让出来
-    el.seats.classList.toggle('crowded', ordered.length >= 7);
+    // 满桌时精简其他人的信息（昵称/上轮动作），把纵向空间让出来。
+    // 反馈的降级也挂在这个类上：决定空间的是人数，不是屏幕尺寸 ——
+    // 同一块屏幕 2 人和 9 人的余量差好几倍。
+    const crowded = ordered.length >= 7;
+    el.seats.classList.toggle('crowded', crowded);
     el.seats.innerHTML = ordered.map((s, k) => {
       const a = MY_ANGLE - k * (2 * Math.PI / n);   // 自己在 MY_ANGLE（左下），其余顺时针排开
       const flip = Math.sin(a) < -0.05;
@@ -165,18 +302,41 @@
         ? '<div class="thinking">' + (s.connected ? '行动中…' : '掉线等待') + '</div>'
         : (s.lastAction ? '<div class="last">' + UI.esc(s.lastAction) + '</div>' : '');
 
+      // 行动中的人：座位上挂一个倒计时秒数（满桌由 CSS 隐掉，只留颜色与脉冲）
+      const isActing = t.actSeat === s.i && !!t.actDeadline;
+      const tier = isActing ? tierOf(t.actDeadline) : '';
+      const secTag = isActing
+        ? '<div class="seat-sec">' + secLeft(t.actDeadline) + '</div>'
+        : '';
+
+      // 动作反馈浮层：absolute + pointer-events:none，完全不参与布局。
+      // 座位宽度是按「相邻座位不重叠」反推出来的，任何参与布局的新元素都会破坏它。
+      const f = flashOf(s.i);
+      const flash = f
+        ? '<div class="act-flash' + (f.byTimeout ? ' by-timeout' : '') + '">' +
+            (f.byTimeout ? '<i class="to-tag">超时</i>' : '') +
+            '<span class="af-text">' + UI.esc(f.text) + '</span>' +
+          '</div>'
+        : '';
+
       return '<div class="seat' + (flip ? ' flip' : '') + (s.folded ? ' folded' : '') +
-        (isTurn ? ' turn' : '') + (s.chips <= 0 ? ' out' : '') + (mine ? ' mine' : '') + '" ' +
+        (isTurn ? ' turn' : '') + (s.chips <= 0 ? ' out' : '') + (mine ? ' mine' : '') +
+        (isActing ? ' acting t-' + tier : '') + '" ' +
+        'data-seat="' + s.i + '"' + (isActing ? ' data-tier="' + tier + '"' : '') + ' ' +
         'style="left:' + (50 + geo.rx * Math.cos(a)) + '%;top:' + (50 + geo.ry * Math.sin(a)) + '%">' +
+        flash +
         cards +
         '<div class="avatar">' + UI.esc(s.name.slice(0, 1)) + '</div>' +
         '<div class="nm">' + UI.esc(s.name) + (mine ? '（我）' : '') + '</div>' +
         '<div class="chips">' + UI.fmt(s.chips) + '</div>' +
         (badges ? '<div class="sub">' + badges + '</div>' : '') +
+        secTag +
         status +
         (s.bet > 0 ? '<div class="bet">' + s.bet + '</div>' : '') +
         '</div>';
     }).join('');
+
+    if (flashes.size || (t.actSeat >= 0 && t.actDeadline)) startSeatTick();
   }
 
   function renderScore() {
@@ -215,6 +375,7 @@
       el.slider.disabled = true;
       [].forEach.call(el.quick.querySelectorAll('button'), b => b.disabled = true);
       el.timer.hidden = true;
+      el.timer.className = 'timer';
       clearInterval(timerId); timerId = null;
       const t = state.table;
       if (state.room.status !== 'playing') el.prompt.textContent = '牌局未开始';
@@ -228,9 +389,10 @@
     el.btnFold.disabled = false;
     el.btnCall.disabled = false;
     el.btnAllin.disabled = !(you.tableChips > 0);
-    el.btnCall.firstChild.nodeValue = L.toCall > 0
-      ? (L.callAmount >= you.tableChips ? '全下跟注 ' + L.callAmount : '跟注 ' + L.callAmount) + ' '
-      : '过牌 ';
+    // 文案写进 <span class="lbl">，不依赖 firstChild 是不是文本节点
+    el.btnCall.querySelector('.lbl').textContent = L.toCall > 0
+      ? (L.callAmount >= you.tableChips ? '全下跟注 ' + L.callAmount : '跟注 ' + L.callAmount)
+      : '过牌';
 
     const canRaise = L.canRaise && L.maxTotalBet > 0;
     el.slider.disabled = !canRaise;
@@ -242,7 +404,7 @@
       if (el.slider.value < L.minTotal || el.slider.value > L.maxTotalBet) el.slider.value = L.minTotal;
       updateRaiseLabel();
     } else {
-      el.btnRaise.firstChild.nodeValue = '加注 ';
+      el.btnRaise.querySelector('.lbl').textContent = '加注';
     }
     el.prompt.innerHTML = '<b>轮到你了</b> · 底池 <b>' + L.pot + '</b>' +
       (L.toCall > 0 ? ' · 需跟注 <b>' + L.toCall + '</b>' : ' · 可以过牌');
@@ -252,20 +414,31 @@
   function updateRaiseLabel() {
     const act = state.table.you.act; if (!act) return;
     const v = parseInt(el.slider.value, 10);
-    el.btnRaise.firstChild.nodeValue =
-      (v >= act.legal.maxTotalBet ? '全下 ' + v : '加注到 ' + v) + ' ';
+    el.btnRaise.querySelector('.lbl').textContent =
+      (v >= act.legal.maxTotalBet ? '全下 ' + v : '加注到 ' + v);
   }
 
   function startTimer() {
     if (timerId) return;
     el.timer.hidden = false;
-    timerId = setInterval(() => {
+    const tick = () => {
       const act = state && state.table.you ? state.table.you.act : null;
-      if (!act) { clearInterval(timerId); timerId = null; el.timer.hidden = true; return; }
-      const left = Math.max(0, act.deadline - Date.now());
-      el.timerBar.style.width = Math.min(100, left / ACTION_TIMEOUT * 100) + '%';
-      el.timerBar.style.background = left < 8000 ? 'var(--red)' : 'var(--green)';
-    }, 200);
+      if (!act) {
+        // 提前完成行动：立刻收掉倒计时，不留残影
+        clearInterval(timerId); timerId = null;
+        el.timer.hidden = true;
+        el.timer.className = 'timer';
+        return;
+      }
+      const left = msLeft(act.deadline);
+      // 整秒文字。归零时显示 0，不会出现负数
+      el.timerSec.textContent = secLeft(act.deadline);
+      el.timerBar.style.width = Math.min(100, left / actionTimeout() * 100) + '%';
+      // 颜色交给 CSS 的档位类，JS 不直接写颜色值，避免和样式表两处维护
+      el.timer.className = 'timer t-' + tierOf(act.deadline);
+    };
+    tick();                      // 立即画一帧，避免头 200ms 是空的
+    timerId = setInterval(tick, 200);
   }
 
   function submit(action) {

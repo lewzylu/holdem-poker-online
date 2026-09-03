@@ -1,4 +1,5 @@
-/* app.css —— 登录页、大厅、联机牌桌的补充样式（牌桌基础样式复用 /shared/css/style.css） */
+/* app.css —— 登录页、大厅、联机牌桌的补充样式
+ * 牌桌的基础样式（布局/牌面/座位/操作条）在 css/table.css，必须先加载它再加载本文件。 */
 :root {
   --bg: #0d1117;
   --bg2: #161b22;
@@ -268,20 +269,91 @@ button.mini {
   bottom: -14px; top: auto;
 }
 .seat.flip:not(.mine) .bet { top: -14px; bottom: auto; }
-/* 对手的徽章/动作文字：默认隐藏，太吵了 */
+/* 对手的徽章默认隐藏，太吵了 */
 .seat:not(.mine) .sub { display: none; }
+/* 对手的「上一步动作 / 行动中」——以前这里是 display:none，把最该看到的两条信息
+ * （谁在动、刚做了什么）和噪音一起砍掉了，于是对手下注在屏幕上毫无痕迹。
+ * 现在保留，但压成一行小字；满桌（>=7 人）时再由 .crowded 收掉。 */
 .seat:not(.mine) .last,
-.seat:not(.mine) .thinking { display: none; }
+.seat:not(.mine) .thinking {
+  font-size: calc(var(--seat-w, 118px) * .075);
+  max-width: calc(var(--seat-w, 118px) * .9);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex-shrink: 0;
+}
 /* 对手正在行动：头像加金色发光环代替文字提示 */
 .seat.turn:not(.mine) .avatar {
   border-color: var(--gold); box-shadow: 0 0 0 3px rgba(240, 180, 41, .3);
 }
+
+/* ---- 行动者座位的三阶告警 ----
+ * 与本人倒计时共用同一套阈值（>11s / 8~11s / <8s），
+ * 这样「我看到的红」和「对手座位的红」含义一致。
+ * 只动 box-shadow 与 transform：不触发重排，低端机也不会掉帧。 */
+.seat.acting .avatar { transition: border-color .2s, box-shadow .2s; }
+.seat.acting.t-ok .avatar {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(46, 204, 113, .32);
+}
+.seat.acting.t-warn .avatar {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(240, 180, 41, .40);
+  animation: seat-breathe 1.4s ease-in-out infinite;
+}
+.seat.acting.t-urgent .avatar {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(255, 95, 86, .5);
+  animation: seat-breathe .6s ease-in-out infinite;
+}
+.seat.acting.t-ok .seat-sec { border-color: var(--green); color: var(--green); }
+.seat.acting.t-warn .seat-sec { border-color: var(--gold); color: var(--gold); }
+.seat.acting.t-urgent .seat-sec { border-color: var(--red); color: #ffb3ae; }
+
+@keyframes seat-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.09); }
+}
+
+/* 掉线的人正在被等待：让「掉线」这件事压过倒计时的颜色，
+ * 否则会以为对方在思考，其实是断线了 */
+.seat.acting .thinking { color: var(--gold); }
+.seat.acting.t-urgent .thinking { color: #ffb3ae; }
 /* 对手弃牌：整体半透明 + 牌背灰掉 */
 .seat.folded:not(.mine) { opacity: .35; }
 .seat.folded:not(.mine) .card.back { filter: grayscale(1) brightness(0.6); }
 
 /* 满桌（>=7 人）进一步压缩：隐藏对手昵称，只留牌+头像+筹码 */
 #seats.crowded .seat:not(.mine) .nm { display: none; }
+/* 满桌时对手的动作文字放不下，收掉；此时「谁在动、还剩多久」全靠
+ * 头像的颜色与脉冲表达（.seat.acting.t-* 那组规则不依赖文字，仍然有效）。
+ * 分级依据是人数而不是屏幕宽度：决定座位空间的是人数，
+ * 同一块屏幕 2 人和 9 人的余量差好几倍。 */
+#seats.crowded .seat:not(.mine) .last,
+#seats.crowded .seat:not(.mine) .thinking { display: none; }
+/* 满桌时座位秒数也收掉，避免和邻座的牌背重叠；颜色仍在 */
+#seats.crowded .seat:not(.mine) .seat-sec { display: none; }
+/* 满桌时动作反馈降级：去掉文字，只留一枚带色圆点脉冲一下。
+ * 仍然「有反馈」，只是不依赖文字 —— 满桌座位不足 40px，放不下任何字。 */
+#seats.crowded .act-flash {
+  padding: 0; border-width: 0; background: none; box-shadow: none;
+  min-width: 0;
+}
+#seats.crowded .act-flash .af-text,
+#seats.crowded .act-flash .to-tag { display: none; }
+#seats.crowded .act-flash::before {
+  content: ''; display: block;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 3px rgba(240, 180, 41, .28);
+  animation: dot-pop .5s ease-out;
+}
+#seats.crowded .act-flash.by-timeout::before {
+  background: var(--red); box-shadow: 0 0 0 3px rgba(255, 95, 86, .3);
+}
+@keyframes dot-pop {
+  from { transform: scale(.4); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
 
 /* ---- 界面精简 ----
  * 牌桌顶部原本是「阶段 / 底池 / 盲注」三行竖排，吃掉一大截纵向空间（手机横屏尤其吃亏），
@@ -322,10 +394,9 @@ button.mini {
 .seat.mine .nm { color: var(--gold); font-weight: 700; }
 .seat.mine .avatar { border-color: var(--gold); }
 .seat.mine .hole { gap: 4px; }
-/* 自己的牌比别人大一号，手机上更容易快速看牌 */
-.card.my { width: 42px; height: 59px; }
-.card.my .rank { font-size: 18px; }
-.card.my .suit { font-size: 15px; margin-top: 2px; }
+/* 自己的牌比别人大一号，手机上更容易快速看牌。
+ * 尺寸已经由上面的 --seat-w 比例给出（.36/.50 —— 基准 118px 时正好是 42×59），
+ * 这里不要再写死像素值：否则满桌收缩时自己的牌不跟着缩，会顶到邻座。 */
 
 /* 触摸端基础优化 */
 button, .room-item, .lseat, .seat, #raise-slider {
@@ -406,7 +477,10 @@ button, .room-item, .lseat, .seat, #raise-slider {
   .raise-box { min-width: 130px; gap: 3px; }
   #raise-slider { height: 20px; }
   .quick button { font-size: 10px; padding: 3px 7px; }
-  .timer { width: 96px; height: 6px; }
+  /* 矮屏：进度条收窄，秒数字号跟着缩，但数字始终保留 —— 它比条更有用 */
+  .timer { gap: 5px; }
+  .timer-track { width: 96px; height: 6px; }
+  .timer-sec { font-size: 13px; }
 
   /* 结算浮层别挡住桌面 */
   .result-float { bottom: 72px; padding: 10px 14px; min-width: 300px; }
@@ -439,6 +513,7 @@ button, .room-item, .lseat, .seat, #raise-slider {
   button.act { flex: 1; min-width: 0; }
   .raise-box { min-width: 100%; order: 5; }
   .timer { width: 100%; order: 6; }
+  .timer-track { flex: 1; width: auto; }
 }
 
 /* 安全区（刘海屏 / 圆角） */
@@ -451,11 +526,39 @@ button, .room-item, .lseat, .seat, #raise-slider {
   color: #cfeee0; font-size: 13px; background: rgba(0,0,0,.35);
   padding: 6px 16px; border-radius: 999px;
 }
+/* ---- 行动倒计时 ----
+ * 以前只有一条 130x8px 的进度条、没有任何数字，玩家只能靠目测比例反推还剩几秒。
+ * 剩余毫秒本来就算出来了，这里把它显示成整秒。
+ * 颜色分三档由 .t-ok / .t-warn / .t-urgent 控制，与对手座位共用同一套阈值。 */
 .timer {
-  width: 130px; height: 8px; background: rgba(255,255,255,.08); border-radius: 999px;
-  overflow: hidden; align-self: center;
+  display: flex; align-items: center; gap: 7px;
+  align-self: center;
 }
-.timer span { display: block; height: 100%; width: 100%; background: var(--green); transition: width .2s; }
+.timer-sec {
+  min-width: 2.2em; text-align: right;
+  font-weight: 800; font-size: 15px;
+  font-variant-numeric: tabular-nums;   /* 等宽数字，秒数跳动时不会左右抖 */
+  color: var(--green);
+}
+.timer-sec::after { content: 's'; font-size: .72em; font-weight: 600; opacity: .7; margin-left: 1px; }
+.timer-track {
+  display: block; width: 130px; height: 8px;
+  background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden;
+}
+.timer-track span { display: block; height: 100%; width: 100%; background: var(--green); transition: width .2s; }
+
+.timer.t-ok .timer-sec { color: var(--green); }
+.timer.t-ok .timer-track span { background: var(--green); }
+.timer.t-warn .timer-sec { color: var(--gold); }
+.timer.t-warn .timer-track span { background: var(--gold); }
+.timer.t-urgent .timer-sec { color: var(--red); animation: sec-pulse .8s ease-in-out infinite; }
+.timer.t-urgent .timer-track span { background: var(--red); }
+
+/* 只动 opacity/transform：这两个属性由合成器处理，不会触发重排 */
+@keyframes sec-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .55; transform: scale(1.12); }
+}
 .result-float {
   position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
   background: rgba(12,18,26,.96); border: 1px solid var(--gold); border-radius: 14px;

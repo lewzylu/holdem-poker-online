@@ -17,7 +17,7 @@ npm start            # 默认 3000 端口
 同网访问：  http://192.168.1.20:3000      ← 把这个发给朋友
 ```
 
-朋友连同一个 WiFi，浏览器打开这个地址 → 注册账号 → 进大厅 → 创建/加入房间（6 位房间号）→ 坐下买入 → 房主点「开始牌局」。
+朋友连同一个 WiFi，浏览器打开这个地址 → 注册账号 → 进大厅 → 创建/加入房间（8 位房间号）→ 坐下买入 → 房主点「开始牌局」。
 
 ## 玩法流程
 
@@ -30,6 +30,11 @@ npm start            # 默认 3000 端口
 ## 账号与资产
 
 - 账号数据存在 `data/users.json`（scrypt 哈希 + 随机 token 会话），重启不丢
+- 写盘是**先写临时文件再 rename**，写一半崩溃不会损坏账号库
+- 登录状态 30 天有效，过期自动失效；会话数量有上限并会清理
+- 测试账号**默认不创建**。需要时用 `POKER_SEED=1 npm start` 播种 `test1`/`test2`，
+  口令取 `POKER_SEED_PW`，未设置则随机生成并只在启动时打印一次。
+  不要在公网环境留下固定弱口令账号。
 - 资产分两处：**账号余额**（不在桌上）和**桌上筹码**（买入后冻结在座位上）
 - 恒等式：所有人的 `账号余额 + 桌上筹码 + 底池` 始终等于注册赠送总额 —— 端到端测试每次都会校验这条
 
@@ -41,17 +46,25 @@ poker-online/
     server.js      HTTP 静态服务 + WebSocket 长连接 + 消息路由
     room.js        房间：座位/买入/开局，驱动 PokerEngine，生成每人独立的视图
     db.js          账号、密码哈希、会话、资产（JSON 持久化）
-    poker-core.js  加载牌型与规则核心（开发用 poker/js，部署用 vendor/）
-    vendor/        核心逻辑副本，用于独立部署
+    poker-core.js  加载牌型与规则核心（从 vendor/ 加载，本地有 ../poker/js 时优先用）
+  vendor/          规则核心副本：cards.js / engine.js（ai.js 可选），随仓库自带
   public/          前端三页：登录 / 大厅 / 牌桌
+    js/cards.js    牌面渲染与牌型评估（vendor/cards.js 的前端副本）
+    css/table.css  牌桌基础样式（布局 / 牌面 / 座位 / 操作条）
+    css/app.css    补充样式与响应式，覆盖 table.css
   tools/
     e2e.js         端到端：机器人自动打牌，校验资产守恒
     edge.js        边界：中途离座、掉线重连、补给、超时弃牌
+    nav-test.js    页面跳转回归（需 jsdom）
+    layout-test.js 座位角度与极端屏幕比例（需 jsdom）
     build-static.js  生成纯静态前端（dist/）
-    vendor.js      同步核心逻辑到 vendor/
+    vendor.js      从 ../poker/js 同步核心逻辑到 vendor/ 与 public/js/
 ```
 
-**关键设计**：`poker/js/engine.js` 是纯逻辑、不碰 DOM 的规则引擎，通过 hooks 与外界交互。联机时把 `requestAction` 换成「等这个玩家的 WebSocket 消息」就完成了升格——规则代码一行没改。
+`vendor/` 里的副本随仓库提供，克隆下来 `npm install && npm start` 就能跑，
+**不依赖任何仓库外部目录**（早期版本会去找兄弟目录 `../poker/`，现在已经不需要）。
+
+**关键设计**：`vendor/engine.js` 是纯逻辑、不碰 DOM 的规则引擎，通过 hooks 与外界交互。联机时把 `requestAction` 换成「等这个玩家的 WebSocket 消息」就完成了升格——规则代码一行没改。联机局没有 AI 座位，所以 `ai.js` 是可选依赖，缺失不影响启动。
 
 **防作弊**：服务端给每个玩家单独生成视图（`stateFor`），底牌字段只在「本人」或「摊牌」时才填充，前端拿不到别人的牌，也无权修改筹码。
 
@@ -72,15 +85,31 @@ poker-online/
 
 服务端默认监听 `0.0.0.0:3000`，可用 `PORT` / `HOST` 环境变量覆盖；`GET /healthz` 是健康检查。
 
+其他环境变量：
+
+| 变量 | 作用 |
+| --- | --- |
+| `POKER_DATA` | 账号库路径，默认 `data/users.json` |
+| `POKER_SEED=1` | 播种 `test1`/`test2` 测试账号（默认关闭） |
+| `POKER_SEED_PW` | 测试账号口令，未设则随机生成并打印一次 |
+| `ALLOW_ORIGIN` | 允许的页面来源（逗号分隔的 host）。留空不校验，方便局域网/反代；公网部署建议配上 |
+| `DEBUG_CHIPS=1` | 打印每手牌前后引擎与座位的筹码合计，排查漂移用 |
+
+镜像以非 root 用户运行，数据目录 `/app/data` 已在构建时授权。
+
 ## 自测
 
 ```bash
 npm start                    # 另开一个终端
 npm test                     # 4 人自动打 8 手，校验资产守恒
 npm run test:edge            # 中途离座 / 掉线重连 / 补给 / 超时弃牌
+npm run test:nav             # 页面跳转回归：专防登录态竞态导致的无限跳转
+npm run test:layout          # 座位角度与极端屏幕比例
 node tools/e2e.js 9 20       # 9 人满桌压测
-node tools/nav-test.js       # 页面跳转回归（需 jsdom）：专防登录态竞态导致的无限跳转
 ```
+
+`nav-test` / `layout-test` 需要 jsdom（`npm install` 会装上）；
+`render-check.js` / `visual-check.js` 需要真实 Chromium（agent-browser CLI），不在 npm 依赖里。
 
 `nav-test.js` 用 jsdom 加载真实页面并拦截 `location.href` 赋值（记录而不真的导航），
 从而能断言「这个页面该不该跳、跳几次、跳去哪」。
@@ -146,5 +175,4 @@ node tools/render-check.js    # 真实 Chromium：底牌是否横排、日志行
 - 结算展示时长：同文件 `RESULT_SHOW_MS`（默认 6.5 秒）
 - 盲注/买入上限：`server/db.js` 的 `MIN_BUYIN / MAX_BUYIN`，以及 `room.sit()` 里的 `bb * 200` 封顶
 - 注册赠送：`server/db.js` 的 `START_CHIPS`
-- 规则与 AI：改 `../poker/js/` 下对应文件，然后 `npm run vendor` 同步副本
-# holdem-poker-online
+- 规则与 AI：改 `vendor/` 下对应文件（若本地有 `../poker/js/` 源码，改完执行 `npm run vendor` 同步）
