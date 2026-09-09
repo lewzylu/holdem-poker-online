@@ -5,7 +5,8 @@
     roomTag: $('#room-tag'), blindTag: $('#blind-tag2'), handTag: $('#hand-tag'),
     meName: $('#me-name2'), meChips: $('#me-chips2'), meTable: $('#me-table'),
     btnRebuy: $('#btn-rebuy'), btnStand: $('#btn-stand'), btnLobby: $('#btn-lobby'),
-    btnPanel: $('#btn-panel'), side: $('.side'), felt: $('.felt'),
+    btnPanel: $('#btn-panel'), side: $('.side'),
+    fit: $('#table-fit'), canvas: $('#table-canvas'),
     phase: $('#phase'), pot: $('#pot b'), blind: $('#blind'),
     board: $('#board'), seats: $('#seats'), waiting: $('#waiting'),
     prompt: $('#prompt'),
@@ -51,56 +52,71 @@
     return 'ok';
   }
 
-  // 自己固定在这个角度：PI*0.75 = 135°，即椭圆左下方
-  const MY_ANGLE = Math.PI * 0.75;
+  /* ---------- 固定比例画布 ----------
+   * 牌桌不再按实测宽高比反推几何，而是固定在一块 1200×600（2:1）的逻辑画布上，
+   * 整体按 min(可用宽/1200, 可用高/600) 等比缩放后居中，多余空间留白。
+   * 这样任何视口下「牌 ÷ 桌」「座位相对位置」都是同一个数，玩家换设备不用重建空间记忆。
+   */
+  const CANVAS_W = 1200;      // 逻辑画布宽（CSS 像素），= table.css 的 .table-canvas width
+  const CANVAS_H = 600;       // 逻辑画布高，2:1 是横屏设备比例的居中取值
 
-  /** 按牌桌实际宽高比算椭圆半径：桌子越扁（手机横屏）纵向半径越小，避免座位溢出桌面 */
-  function ellipseGeo(n) {
-    const r = el.felt ? el.felt.getBoundingClientRect() : { width: 0, height: 0 };
-    // 座位是相对 .felt 的 padding box 用百分比定位的，但 getBoundingClientRect 返回的是
-    // 含木边框的 border-box 尺寸。直接用会把可用间距高估约 7%（12px 边框 ÷ 366px），
-    // 算出来的座位就偏大、邻座会互相压住。这里减掉边框，拿到真正可用的内容区尺寸。
-    let bw = 0, bh = 0;
-    if (el.felt) {
-      const cs = getComputedStyle(el.felt);
-      bw = (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
-      bh = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-    }
-    const w = Math.max(0, r.width - bw), h = Math.max(0, r.height - bh);
-    const ratio = (w > 0 && h > 0) ? w / h : 1.7;
-    // 人越多，椭圆越贴近上下边缘，给座位腾出纵向空间
-    const crowd = n >= 7 ? 1.3 : (n >= 5 ? 1.15 : 1);
-    const ry = Math.max(26, Math.min(46, 56 / Math.max(ratio, 1) * crowd));
-    // 竖屏（牌桌偏高）时横向半径要收，否则两侧座位会顶出屏幕
-    const rx = ratio < 1.2
-      ? Math.min(38, Math.max(32, ry * 0.9))
-      : Math.min(46, Math.max(38, ry * 1.35));
-    return { rx: rx, ry: ry, ratio: ratio, w: w, h: h };
+  /* ---------- 九个固定座位槽位 ----------
+   * 桌面是画布内居中的 900×400、圆角 120 的圆角长方形（见 table.css 的 .felt），
+   * 于是直边区段为：水平 x ∈ [270, 930]，竖直 y ∈ [220, 380]。
+   * 九个槽位全部落在直边上，没有一个骑在圆角弧上 —— 这是「同侧席位严格对齐」的前提。
+   *
+   * 编号即渲染顺序：0 号是本人（底边正中），其余自本人起顺时针环绕。
+   * 座位数固定为 9，与在座人数无关；没人坐的槽位渲染成空位占位。
+   *
+   * 布局（底 3 / 右 2 / 顶 2 / 左 2，左右严格镜像）：
+   *
+   *        [6]                     [5]              y=100  顶边
+   *   [7]                               [4]         y=220
+   *   [8]                               [3]         y=380
+   *        [1]      [0]=我      [2]                  y=500  底边
+   *      x=430     x=600      x=770
+   *   x=150                          x=1050
+   *
+   * ⚠️ 改动下面任何一个数都必须重跑 `node tools/layout-test.js`：
+   *    「九席不重叠」这件事只由这张表保证，而且余量很紧 ——
+   *    碰撞盒 140×101（卡片 140×56 + 牌向桌心探出 45）下最紧的是
+   *    侧边上下两席（3-4 / 7-8，牌相向而出）只剩 14px，其次底边 0-1 / 0-2 的 30px。
+   */
+  const SLOTS = [
+    { x: 600,  y: 500 },   // 0  本人，底边正中
+    { x: 430,  y: 500 },   // 1  底边左
+    { x: 770,  y: 500 },   // 2  底边右
+    { x: 1050, y: 380 },   // 3  右下
+    { x: 1050, y: 220 },   // 4  右上
+    { x: 700,  y: 100 },   // 5  顶边右
+    { x: 500,  y: 100 },   // 6  顶边左
+    { x: 150,  y: 220 },   // 7  左上
+    { x: 150,  y: 380 }    // 8  左下
+  ];
+  const SLOT_COUNT = SLOTS.length;
+
+  /** 第 k 个槽位在 .seats 里的百分比坐标（.seats 铺满整块画布，所以直接除画布尺寸）。
+   *  纯查表，与在座人数和视口都无关 —— 缩放只由 --tscale 承担。 */
+  function seatPos(k) {
+    const s = SLOTS[k];
+    return {
+      left: s.x / CANVAS_W * 100,
+      top: s.y / CANVAS_H * 100,
+      // 上半部的槽位要把下注额等浮层翻到另一侧，避免压住桌心
+      flip: s.y < CANVAS_H / 2
+    };
   }
 
-  /** 座位宽度：遍历椭圆上每一对相邻座位，取能同时满足「水平或垂直至少一个方向分离」的最大宽度。
-   *  座位是矩形，判定不重叠的条件是 dx >= W 或 dy >= H（H = hRatio × W），所以对每对座位：
-   *  W 不能超过 max(dx, dy / hRatio)。
-   *  人多时牌与头像并排（见 .crowded），座位高度只有宽度的 ~0.6 倍，于是同样间距能显示更大的牌。 */
-  function seatWidth(n, geo) {
-    if (!geo.w || !geo.h) return 118;
-    const rxPx = geo.rx / 100 * geo.w, ryPx = geo.ry / 100 * geo.h;
-    // 座位实测高宽比：自己的座位（纵向堆叠）≈1.35；
-    // 对手座位（横排一行：牌背+头像+昵称+筹码）≈0.38。
-    // 9 人桌只有 1 个 mine + 8 个对手，加权平均后取 0.50 已足够安全，
-    // 比以前的 0.6（crowded）或 1.35（常规）能算出更大更清晰的座位。
-    const hRatio = n >= 7 ? 0.42 : (n >= 5 ? 0.48 : 0.55);
-    const step = 2 * Math.PI / Math.max(n, 2);
-    let best = Infinity;
-    for (let k = 0; k < Math.max(n, 2); k++) {
-      // 必须按实际使用的角度（从 MY_ANGLE 递减）来算，否则间距会算偏
-      const t1 = MY_ANGLE - k * step, t2 = MY_ANGLE - (k + 1) * step;
-      const dx = Math.abs(rxPx * (Math.cos(t1) - Math.cos(t2)));
-      const dy = Math.abs(ryPx * (Math.sin(t1) - Math.sin(t2)));
-      best = Math.min(best, Math.max(dx, dy / hRatio));
-    }
-    const cap = window.innerHeight <= 430 ? 76 : (window.innerHeight <= 600 ? 88 : 118);
-    return Math.round(Math.max(34, Math.min(cap, best - 4)));
+  /** 算出画布的等比缩放系数写进 --tscale。
+   *  只取一个系数、两轴同用：任一轴单独缩放就会破坏「比例固定」这个前提。
+   *  可用区域量不到（竖屏下 .table-fit 被隐藏、或 jsdom 没有布局引擎）时直接跳过，
+   *  留着上一次的值比写入 0 安全。 */
+  function fitCanvas() {
+    if (!el.fit || !el.canvas) return;
+    const r = el.fit.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const s = Math.min(r.width / CANVAS_W, r.height / CANVAS_H);
+    if (s > 0) el.canvas.style.setProperty('--tscale', s);
   }
 
   /* ---------- 身份 ---------- */
@@ -132,6 +148,7 @@
   });
 
   /* ---------- 渲染 ---------- */
+  let firstRender = true;
   function render() {
     if (!state) return;
     const room = state.room, t = state.table, you = t.you;
@@ -156,6 +173,8 @@
     renderChat(state.chat || []);
     renderActions();
     renderResult(state.result);
+    // 首帧渲染完再补一次：脚本执行时侧栏/操作条可能还没定下最终高度
+    if (firstRender) { firstRender = false; scheduleFit(); }
   }
 
   /** 公共牌：只渲染已经发出的牌。以前会补 5 个半透明空占位，视觉上很脏，
@@ -223,6 +242,8 @@
     let alive = false;
 
     [].forEach.call(nodes, node => {
+      // 空槽位没有 data-seat，也没有任何需要逐帧更新的东西，直接跳过
+      if (node.dataset.seat === undefined) return;
       const i = parseInt(node.dataset.seat, 10);
 
       // 当前行动者：按剩余时间递进档位（与本人倒计时同一套阈值）
@@ -233,7 +254,6 @@
           node.classList.add('t-' + tier);
           node.dataset.tier = tier;
         }
-        // 少人局时把秒数也显示出来；满桌交给颜色，避免挤爆座位
         const secNode = node.querySelector('.seat-sec');
         if (secNode) secNode.textContent = secLeft(t.actDeadline);
         alive = true;
@@ -262,33 +282,65 @@
 
   function renderSeats() {
     const t = state.table;
-    const players = t.seats.filter(s => s.name);
-    // 以「我」为起点重排：自己永远固定在左下方，其余人按顺序环绕，
-    // 这样看牌位置固定，手机横屏也能形成肌肉记忆。
-    let ordered = players;
-    const mi = players.findIndex(s => s.name === myName);
-    if (mi > 0) ordered = players.slice(mi).concat(players.slice(0, mi));
+    const all = t.seats || [];
+    // 服务端固定下发 9 个槽位（空位 name 为 null），这里全部渲染，不再过滤在座玩家。
+    // 席位因此在人员进出时完全稳定：别人坐下或离座不会让其他人换位置。
+    const mi = all.findIndex(s => s.name && s.name === myName);
 
-    const n = Math.max(ordered.length, 2);
-    const geo = ellipseGeo(n);
-    el.seats.style.setProperty('--seat-w', seatWidth(n, geo) + 'px');
-    // 满桌时精简其他人的信息（昵称/上轮动作），把纵向空间让出来。
-    // 反馈的降级也挂在这个类上：决定空间的是人数，不是屏幕尺寸 ——
-    // 同一块屏幕 2 人和 9 人的余量差好几倍。
-    const crowded = ordered.length >= 7;
-    el.seats.classList.toggle('crowded', crowded);
-    el.seats.innerHTML = ordered.map((s, k) => {
-      const a = MY_ANGLE - k * (2 * Math.PI / n);   // 自己在 MY_ANGLE（左下），其余顺时针排开
-      const flip = Math.sin(a) < -0.05;
+    // 服务端座位号 -> 槽位号 的映射
+    const slotOf = new Array(SLOT_COUNT).fill(-1);
+    if (mi >= 0) {
+      // 已入座：本人落在槽位 0（底边正中），其余按服务端座位顺序顺时针铺开。
+      for (let k = 0; k < SLOT_COUNT; k++) slotOf[(mi + k) % SLOT_COUNT] = k;
+    } else {
+      // 未入座（旁观）：没有「本人」这个基准点可供旋转。
+      // 若直接拿服务端座位号当槽位号，3 个人会全落在槽位 0/1/2 —— 恰好都在底边，
+      // 看起来像所有人挤在一侧、另外三边全空。
+      // 改为把在座玩家沿九个槽位等距摊开：
+      //   第 j 个在座玩家 -> 槽位 round(j * 9 / 人数)
+      // 这样同时满足「分散」「保持相对顺序」「同一房间状态下结果稳定」，
+      // 满席时 9/9 = 1，退化成一一对应。
+      const occupied = [];
+      all.forEach((s, i) => { if (s && s.name) occupied.push(i); });
+      const n = occupied.length;
+      if (n > 0) {
+        occupied.forEach((seatIdx, j) => {
+          slotOf[seatIdx] = Math.round(j * SLOT_COUNT / n) % SLOT_COUNT;
+        });
+      }
+    }
+    // 反向索引：槽位号 -> 服务端座位（没人则为 null）
+    const bySlot = new Array(SLOT_COUNT).fill(null);
+    slotOf.forEach((slot, seatIdx) => {
+      if (slot >= 0 && all[seatIdx] && all[seatIdx].name) bySlot[slot] = all[seatIdx];
+    });
+
+    let html = '';
+    for (let k = 0; k < SLOT_COUNT; k++) {
+      const s = bySlot[k];
+      const p = seatPos(k);
+      const posStyle = 'style="left:' + p.left + '%;top:' + p.top + '%"';
+
+      // ---- 空槽位：占位形态，不含任何玩家信息，也不绑定交互 ----
+      if (!s) {
+        html += '<div class="seat empty' + (p.flip ? ' flip' : '') + '" ' +
+          'data-slot="' + k + '" ' + posStyle + '>' +
+          '<div class="info"><span class="empty-tag">空位</span></div>' +
+          '</div>';
+        continue;
+      }
+
       const mine = s.name === myName;
       const isTurn = t.currentIdx === s.i;
-      // 两张底牌必须包进 .hole 才会横向并排：.seat 本身是纵向 flex，
-      // 直接把两张 .card 塞进去会变成上下堆叠。
+      // 两张底牌必须包进 .hole 才会横向并排。
+      // 尺寸对所有人统一（都是 .card.small）：本人与对手的区分只靠牌面朝向，
+      // 不靠大小 —— 以前自己的牌是对手的两倍，看起来像渲染坏了。
+      // .hole 是卡片上方的绝对定位浮层，不参与座位卡布局：
+      // 空位/未发牌/弃牌时它整块消失，若参与布局座位就会忽高忽低。
       let cards = '';
       if (s.inHand) {
         cards = '<div class="hole">' + (s.hole
-          // 自己的牌用大一号，方便在手机上快速看牌
-          ? s.hole.map(c => UI.cardHTML(c, mine ? 'my' : 'small')).join('')
+          ? s.hole.map(c => UI.cardHTML(c, 'small')).join('')
           : '<div class="card small back"></div><div class="card small back"></div>') + '</div>';
       }
       let badges = '';
@@ -302,7 +354,7 @@
         ? '<div class="thinking">' + (s.connected ? '行动中…' : '掉线等待') + '</div>'
         : (s.lastAction ? '<div class="last">' + UI.esc(s.lastAction) + '</div>' : '');
 
-      // 行动中的人：座位上挂一个倒计时秒数（满桌由 CSS 隐掉，只留颜色与脉冲）
+      // 行动中的人：座位上挂一个倒计时秒数
       const isActing = t.actSeat === s.i && !!t.actDeadline;
       const tier = isActing ? tierOf(t.actDeadline) : '';
       const secTag = isActing
@@ -310,7 +362,9 @@
         : '';
 
       // 动作反馈浮层：absolute + pointer-events:none，完全不参与布局。
-      // 座位宽度是按「相邻座位不重叠」反推出来的，任何参与布局的新元素都会破坏它。
+      // 它在画布内，所以随画布一起等比缩放，与座位的相对关系恒定。
+      // 位置在座位卡下方 —— 上方归底牌，两者不能抢同一块地方：
+      // 反馈已经没有「退化成圆点」的退路，一旦重叠就是长期遮挡底牌。
       const f = flashOf(s.i);
       const flash = f
         ? '<div class="act-flash' + (f.byTimeout ? ' by-timeout' : '') + '">' +
@@ -319,22 +373,25 @@
           '</div>'
         : '';
 
-      return '<div class="seat' + (flip ? ' flip' : '') + (s.folded ? ' folded' : '') +
+      html += '<div class="seat' + (p.flip ? ' flip' : '') + (s.folded ? ' folded' : '') +
         (isTurn ? ' turn' : '') + (s.chips <= 0 ? ' out' : '') + (mine ? ' mine' : '') +
         (isActing ? ' acting t-' + tier : '') + '" ' +
-        'data-seat="' + s.i + '"' + (isActing ? ' data-tier="' + tier + '"' : '') + ' ' +
-        'style="left:' + (50 + geo.rx * Math.cos(a)) + '%;top:' + (50 + geo.ry * Math.sin(a)) + '%">' +
-        flash +
+        'data-seat="' + s.i + '" data-slot="' + k + '"' +
+        (isActing ? ' data-tier="' + tier + '"' : '') + ' ' + posStyle + '>' +
         cards +
-        '<div class="avatar">' + UI.esc(s.name.slice(0, 1)) + '</div>' +
-        '<div class="nm">' + UI.esc(s.name) + (mine ? '（我）' : '') + '</div>' +
-        '<div class="chips">' + UI.fmt(s.chips) + '</div>' +
+        '<div class="info">' +
+          '<div class="avatar">' + UI.esc(s.name.slice(0, 1)) + '</div>' +
+          '<div class="nm">' + UI.esc(s.name) + (mine ? '（我）' : '') + '</div>' +
+          '<div class="chips">' + UI.fmt(s.chips) + '</div>' +
+        '</div>' +
         (badges ? '<div class="sub">' + badges + '</div>' : '') +
         secTag +
         status +
+        flash +
         (s.bet > 0 ? '<div class="bet">' + s.bet + '</div>' : '') +
         '</div>';
-    }).join('');
+    }
+    el.seats.innerHTML = html;
 
     if (flashes.size || (t.actSeat >= 0 && t.actDeadline)) startSeatTick();
   }
@@ -489,7 +546,10 @@
   }
 
   /* ---------- 顶栏与聊天 ---------- */
-  el.btnPanel.onclick = () => el.side.classList.toggle('open');   // 小屏侧栏抽屉
+  el.btnPanel.onclick = () => {
+    el.side.classList.toggle('open');   // 小屏侧栏抽屉
+    scheduleFit();                      // 抽屉开合会改变 .table-fit 的宽度，重算缩放
+  };
   el.btnLobby.onclick = () => {
     // 记一下「这个房间是我主动退回大厅的」，大厅就不会再把人拽回牌桌
     const id = state && state.room ? state.room.id : '';
@@ -514,13 +574,22 @@
   el.chatSend.onclick = sendChat;
   el.chatText.onkeydown = e => { if (e.key === 'Enter') sendChat(); };
 
-  /* 横竖屏切换 / 窗口缩放：椭圆半径是按实测宽高比算的，必须重排座位 */
-  let rzTimer = null;
-  function onResize() {
-    clearTimeout(rzTimer);
-    rzTimer = setTimeout(() => { if (state) render(); }, 120);
+  /* ---------- 画布缩放的更新时机 ----------
+   * 几何已经是常量了，所以这里不需要再 render()（以前必须重排座位）——
+   * 只需要重算一个 --tscale。用 rAF 合并同一帧里的多次触发：
+   * 拖动窗口边缘会连续抛 resize，每次都同步读一次布局会掉帧。 */
+  const raf = window.requestAnimationFrame
+    ? window.requestAnimationFrame.bind(window)
+    : f => setTimeout(f, 16);
+  let fitPending = false;
+  function scheduleFit() {
+    if (fitPending) return;
+    fitPending = true;
+    raf(() => { fitPending = false; fitCanvas(); });
   }
-  window.addEventListener('resize', onResize);
-  window.addEventListener('orientationchange', () => setTimeout(onResize, 320));
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
+  window.addEventListener('resize', scheduleFit);
+  // 转屏时视口尺寸更新得比事件晚，立刻算一次 + 延迟再算一次
+  window.addEventListener('orientationchange', () => { scheduleFit(); setTimeout(scheduleFit, 320); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleFit);
+  fitCanvas();                 // 首帧：不等任何事件，先把 --tscale 算准
 })();

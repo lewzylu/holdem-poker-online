@@ -36,16 +36,32 @@
 
 <div class="layout">
   <main class="table-main">
+    <!-- .table-fit 是可用区域，.table-canvas 是固定 1200×600 的逻辑画布。
+         画布内一切尺寸都是常量，整体由 JS 写入的 --tscale 等比缩放后居中，多余空间留白。 -->
     <div class="table-wrap">
-      <div class="felt">
-        <div class="table-top">
-          <div class="phase-tag" id="phase">准备</div>
-          <div class="pot" id="pot"><span class="label">底池</span><b>0</b></div>
-          <div class="blind-tag" id="blind">—</div>
+      <div class="table-fit" id="table-fit">
+        <div class="table-canvas" id="table-canvas">
+          <!-- .felt 是桌面本体（画布内居中的圆角长方形），只放桌面上的东西 -->
+          <div class="felt">
+            <div class="table-top">
+              <div class="phase-tag" id="phase">准备</div>
+              <div class="pot" id="pot"><span class="label">底池</span><b>0</b></div>
+              <div class="blind-tag" id="blind">—</div>
+            </div>
+            <div class="board" id="board"></div>
+            <div class="waiting" id="waiting" hidden>牌局未开始，等待房主开局…</div>
+          </div>
+          <!-- 座位在 .felt 之外、直接挂在画布上：槽位坐标就是画布坐标，
+               与桌面的位置和边框宽度完全解耦，侧边席位也才能骑在桌沿外侧。 -->
+          <div class="seats" id="seats"></div>
         </div>
-        <div class="board" id="board"></div>
-        <div class="seats" id="seats"></div>
-        <div class="waiting" id="waiting" hidden>牌局未开始，等待房主开局…</div>
+      </div>
+      <!-- 竖屏引导：显隐只由 CSS 的 @media (orientation: portrait) 控制，JS 不参与，
+           所以牌局照常进行、倒计时照常走、超时照常触发 -->
+      <div class="rotate-hint">
+        <div class="rh-icon">⟳</div>
+        <div class="rh-text">请旋转到横屏</div>
+        <div class="rh-sub">牌桌是固定 2:1 的横向画面，竖屏放不下。牌局仍在继续，下方操作按钮照常可用。</div>
       </div>
     </div>
 

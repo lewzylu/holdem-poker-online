@@ -5,11 +5,15 @@ window.UI = (function () {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
+  /* 牌面 HTML。data-suit 是给 CSS 的花色水印用的（.card::after 读它），
+   * 取值来自 Cards.SUIT_SYMBOL 这张常量表，只有 ♠♥♦♣ 四种，不含任何用户输入。 */
   function cardHTML(c, size) {
     if (!c) return '<div class="card ' + size + ' back"></div>';
-    return '<div class="card ' + size + ' ' + (Cards.isRed(c) ? 'red' : 'black') + '">' +
+    var sym = Cards.SUIT_SYMBOL[c.s];
+    return '<div class="card ' + size + ' ' + (Cards.isRed(c) ? 'red' : 'black') +
+      '" data-suit="' + sym + '">' +
       '<span class="rank">' + Cards.RANK_LABEL[c.r] + '</span>' +
-      '<span class="suit">' + Cards.SUIT_SYMBOL[c.s] + '</span></div>';
+      '<span class="suit">' + sym + '</span></div>';
   }
 
   let toastTimer = null;

@@ -1,8 +1,8 @@
-/* render-check.js —— 用真实浏览器验证本次界面改造
+/* render-check.js —— 用真实浏览器验证界面改造
  *   1) 底牌必须横向并排（而不是竖着堆叠）
  *   2) 日志行不能继承 .board 的绝对定位（否则「河牌：♦A …」会飘到页面正中）
  *   3) 公共牌只渲染已发出的牌，不留空占位
- *   4) 自己的座位在左下方，且底牌比别人大
+ *   4) 自己的座位在左下方，且底牌与对手牌背**等大**（固定画布改造后所有牌统一尺寸）
  * 依赖：agent-browser（真实 Chromium，jsdom 不做布局算不出坐标）
  * 用法：node tools/render-check.js [房间号]
  */
@@ -61,14 +61,31 @@ const PROBE = `JSON.stringify((function(){var rect=function(e){var b=e.getBoundi
   }
   if (!g) { console.log('无法读取页面'); process.exit(1); }
 
+  /* 守卫：牌桌必须真的可见。竖屏下 .table-fit 是 display:none（旋转引导），
+   * 量出来的矩形全是 0，下面「第二张在第一张右侧」之类的断言会拿 0 和 0 比 ——
+   * 既不会通过也说明不了任何问题，纯属噪音。
+   * visual-check 的最后一个用例是竖屏且跑完不复位，所以很容易撞上这一档。 */
+  if (g.myCards.length === 2 && g.myCards[0].w === 0) {
+    console.log('✗ 牌桌当前不可见（竖屏旋转引导？）——先把视口切回横屏：');
+    console.log('    agent-browser set viewport 1440 900');
+    process.exit(1);
+  }
+
   console.log('[1] 底牌横向并排');
   ok(g.hasHole, '底牌包在 .hole 容器里');
   ok(g.myCards.length === 2, '「我」有两张底牌（' + g.myCards.length + '）');
   if (g.myCards.length === 2) {
     const a = g.myCards[0], b = g.myCards[1];
     ok(Math.abs(a.y - b.y) <= 2, '两张底牌在同一水平线上（y ' + a.y + ' vs ' + b.y + '）→ 横排');
-    ok(b.x >= a.r - 1, '第二张在第一张右侧（' + a.x + ' → ' + b.x + '）');
-    ok(Math.abs(a.x - b.x) > a.w * 0.5, '两张牌左右错开而非上下堆叠');
+    ok(b.x > a.x, '第二张在第一张右侧（' + a.x + ' → ' + b.x + '）');
+    // 两张牌是**叠压**的（像捏在手里的手牌），所以第二张的左沿会落在第一张之内。
+    // 这条断言只防「退化成上下堆叠」，判据是横向位移足够大、纵向位移足够小；
+    // 不能用「位移 > 牌宽一半」—— 叠压 14px 后位移正好是牌宽的 0.71 倍，
+    // 那个阈值卡在叠压区间里，会把正常的叠压误判成堆叠。
+    const dx = Math.abs(a.x - b.x);
+    ok(dx > 12 && dx < a.w && Math.abs(a.y - b.y) <= 2,
+      '两张牌左右叠压错开而非上下堆叠（横向位移 ' + dx.toFixed(1) + '，牌宽 ' + a.w + '）');
+    ok(b.x < a.r, '第二张叠压在第一张之上（重叠 ' + (a.r - b.x).toFixed(1) + 'px）');
   }
   const badOther = g.otherHoles.filter(cs =>
     cs.length === 2 && Math.abs(cs[0].y - cs[1].y) > 2);
@@ -94,12 +111,18 @@ const PROBE = `JSON.stringify((function(){var rect=function(e){var b=e.getBoundi
   if (g.mineRect && g.feltRect) {
     const cx = g.mineRect.x + g.mineRect.w / 2, cy = g.mineRect.y + g.mineRect.h / 2;
     const fx = g.feltRect.x + g.feltRect.w / 2, fy = g.feltRect.y + g.feltRect.h / 2;
-    ok(cx < fx, '我的座位在牌桌左半边');
+    // 本人固定在**底边正中**（槽位 0），不是椭圆时代的左下角 135° 方向。
+    // 容差按桌宽的 2% 给：只要没被换到别的槽位就不会超。
+    ok(Math.abs(cx - fx) < g.feltRect.w * 0.02,
+      '我的座位在牌桌底边正中（横向偏移 ' + Math.abs(cx - fx).toFixed(1) + 'px）');
     ok(cy > fy, '我的座位在牌桌下半边');
   }
   if (g.myCards.length === 2 && g.otherHoles[0] && g.otherHoles[0].length === 2) {
-    ok(g.myCards[0].w > g.otherHoles[0][0].w,
-      '我的牌比别人的大（' + g.myCards[0].w + ' > ' + g.otherHoles[0][0].w + '）');
+    // 以前这里断言「我的牌比别人大」。固定画布改造后所有底牌统一尺寸：
+    // 本人与对手的区分靠牌面朝向和座位高亮，不靠大小。
+    const a = g.myCards[0], b = g.otherHoles[0][0];
+    ok(Math.abs(a.w - b.w) <= 0.5 && Math.abs(a.h - b.h) <= 0.5,
+      '我的牌与对手牌背等大（' + a.w + '×' + a.h + ' vs ' + b.w + '×' + b.h + '）');
   }
   if (g.tableTop) {
     ok(g.tableTop.h < 40, '牌桌顶部信息条已压成一行（高 ' + g.tableTop.h + 'px）');
