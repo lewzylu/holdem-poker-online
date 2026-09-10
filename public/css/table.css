@@ -174,17 +174,20 @@
 /* 两张牌**叠压** 14px：像捏在手里的一副手牌，而不是摊开的两张卡。
  * 总宽从 100 收到 82，横向占用少了 18。
  *
- * 14 是上限，不能再多：点数和花色是**居中**排版的，实测「10」这种两位数
- * 点数的右边缘距上层牌左沿只剩 0.8px，再叠就直接压掉读数。
- * 所以下层那张牌的内容要一起向左避让（见下面的 .card:not(:last-child)）。
+ * 牌面改成「左上角索引 + 中央大花色」后，叠压对读数几乎无损 ——
+ * 索引就在露出的那一角，实测下层点数距上层牌左沿仍有 20px 余量
+ * （居中排版的旧牌面只有 0.8px，那时必须让下层内容左移避让）。
+ * 真牌把索引放角上就是这个道理。
  *
  * 也没有加旋转做扇形：牌 48×67 旋 6° 纵向就会多出约 4.6px，
  * 而侧边两席的余量只有 14px，一转就跌破 10px 安全线。 */
 .hole .card + .card { margin-left: -14px; }
-/* 被压住的那张牌（非最后一张）把内容左移半个叠压量，读数从压线变成留出余量。
- * 花色水印在右下角、正好落在被压区，一并关掉免得糊成脏边。 */
-.hole .card:not(:last-child) > .rank,
-.hole .card:not(:last-child) > .suit { transform: translateX(-7px); }
+/* 被压住的那张牌（非最后一张）关掉右下角暗纹：它正落在被压区，
+ * 只会在叠压缝隙里露出一小截，糊成脏边。
+ *
+ * 注：这里曾有一条「把点数和花色左移 7px 避让」的规则。牌面改成
+ * 「左上角索引 + 中央大花色」后不再需要 —— 索引本来就在露出的那一角，
+ * 叠压余量反而从 11.8px 涨到 20.2px。 */
 .hole .card:not(:last-child)::after { content: none; }
 
 /* 头像 + 昵称 + 筹码合成一行：所有人共用这一套结构，本人与对手不再有两套尺寸表。
@@ -321,49 +324,98 @@
  * .card.mini（结算浮层 22×31）。宽高是逻辑画布上的常量，改动必须重跑 layout-test；
  * 这一节只管「长什么样」，一个像素的尺寸都不碰。
  *
- * 质感全靠不占空间的手段：
- *   1. 双层 inset 描边 —— 外圈提亮的白芯 + 内圈压印细线，模拟真牌的切边
- *   2. 分层投影 —— 一条贴地硬边 + 一团柔和扩散，牌才像「躺在」桌上而不是贴在桌上
- *   3. 衬线字体 + 角落花色水印 —— 数字有古典感，水印补白又不抢读数
+ * 结构照真牌来（见 common.js 的 cardHTML）：
+ *
+ *   ┌─────────┐
+ *   │ A       │   .idx = 左上角索引：点数在上、小花色在下，竖排左对齐
+ *   │ ♠       │
+ *   │    ♠    │   ::before = 中央大花色，牌的主视觉
+ *   │       ♠ │   ::after  = 右下角淡花色暗纹（旋 180°，呼应真牌的双向对称）
+ *   └─────────┘
+ *
+ * 索引放角上不是为了好看：叠压时中间那团正好落在被压区，而角上的索引
+ * 无论叠多少张都能从露出的一角读到 —— 真牌把索引放角上就是这个道理。
+ *
+ * 清晰度靠三件事：
+ *   1. 点数与花色**分离**，各占一处，不再挤在一起互相干扰
+ *   2. 中央大花色给足字号（.small 下 30px），远看一眼辨色、辨形
+ *   3. 点数用衬线体 + 微弱白描边，压在浅色底上边缘也不发虚
  *
  * 不引任何外部字体：牌桌必须能离线渲染，字体栈全部走系统。 */
 .card {
   position: relative;
   width: 46px; height: 64px;
   border-radius: 6px;
-  overflow: hidden;                      /* 兜住花色水印，不让它漏出圆角 */
-  /* 象牙白而不是纯白：纯白在墨绿桌面上发飘，压一点暖调才像纸 */
+  overflow: hidden;                      /* 兜住角落暗纹，不让它漏出圆角 */
+  /* 象牙白而不是纯白：纯白在墨绿桌面上发飘，压一点暖调才像纸。
+     斜向高光模拟牌面受光，让平面有一点起伏。 */
   background:
-    radial-gradient(115% 85% at 26% 10%, #ffffff 0%, #fbf9f3 45%, #efeade 100%);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+    linear-gradient(148deg, rgba(255, 255, 255, .82) 0%, rgba(255, 255, 255, 0) 42%),
+    radial-gradient(120% 90% at 24% 8%, #ffffff 0%, #fcfaf5 44%, #eee9dc 100%);
   box-shadow:
     0 1px 1px rgba(0, 0, 0, .32),                /* 贴地硬边 */
     0 5px 12px rgba(0, 0, 0, .34),               /* 柔和扩散 */
-    inset 0 0 0 1px rgba(255, 255, 255, .9),     /* 白芯：切边的高光 */
-    inset 0 0 0 2px rgba(18, 24, 32, .10);       /* 压印线：勾出牌的轮廓 */
+    inset 0 0 0 1px rgba(255, 255, 255, .92),    /* 白芯：切边的高光 */
+    inset 0 0 0 2px rgba(18, 24, 32, .11);       /* 压印线：勾出牌的轮廓 */
   flex-shrink: 0; user-select: none;
 }
-/* 花色水印：右下角一枚淡花色，靠 data-suit 拿字符（见 common.js 的 cardHTML）。
- * 用 currentColor 自动跟随红/黑。
- * 尺寸和透明度都要克制：试过 36px / .09，放大看会被圆角裁成半个心形，
- * 像一块脏斑而不是暗纹。24px + .06 只在角上露一点点，凑近才看得出来。 */
-.card::after {
+
+/* ---- 中央大花色：牌的主视觉 ----
+ * 这是「远看能不能一眼认出花色」的关键，所以字号给到牌宽的 60% 以上。
+ * 稍微下移（58%）而不是正中：上方要给左上角索引让出呼吸空间，
+ * 挨太近两者会互相干扰（第一版取 53%，放大看索引和花色几乎连成一片）。 */
+.card::before {
   content: attr(data-suit);
-  position: absolute; right: -2px; bottom: -6px;
-  font-size: 24px; line-height: 1;
-  color: currentColor; opacity: .06;
+  position: absolute; left: 52%; top: 58%;
+  transform: translate(-50%, -50%);
+  font-size: 28px; line-height: 1;
+  color: currentColor;
+  font-variant-emoji: text;              /* 避免个别系统把 ♥♦ 渲染成彩色 emoji */
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .55);
   pointer-events: none;
 }
+/* ---- 右下角暗纹 ----
+ * 旋 180° 与左上角索引形成对角呼应（真牌两端对称，倒过来拿也一样读）。
+ * 透明度必须压得很低：第一版给了 .3，放大看像第三枚花色在跟中央大花色抢
+ * 注意力，反而更乱。.16 只在凑近时隐约可见，起到补白作用就够了。 */
+.card::after {
+  content: attr(data-suit);
+  position: absolute; right: 3px; bottom: 2px;
+  transform: rotate(180deg);
+  font-size: 10px; line-height: 1;
+  color: currentColor; opacity: .16;
+  font-variant-emoji: text;
+  pointer-events: none;
+}
+
+/* ---- 左上角索引：点数 + 小花色竖排 ----
+ * 绝对定位而不是 flex 布局：牌面现在是「一块画布 + 几个绝对定位的角标」，
+ * 没有任何需要参与流式布局的内容，这样三种尺寸各自调坐标最省事。
+ * top 不能贴到 2px 那么高 —— 牌有 2px 的 inset 压印边，点数会像顶在边框上。 */
+.card .idx {
+  position: absolute; left: 5px; top: 4px;
+  display: flex; flex-direction: column; align-items: center;
+  line-height: 1; pointer-events: none;
+  z-index: 1;                            /* 压在中央大花色之上 */
+}
 .card .rank {
-  /* 衬线体是「高级感」性价比最高的一处：无衬线的数字像 UI 控件，衬线的才像牌 */
+  /* 衬线体是「高级感」性价比最高的一处：无衬线的数字像 UI 控件，衬线的才像牌。
+     白描边让点数压在中央花色边缘时也不发虚。
+     字号按「实显能读」定而不是按牌宽比例缩：公共牌逻辑宽 46px，在桌面视口下
+     实显只有 41px，索引给小了远看就是一团糊。 */
   font-family: Georgia, "Times New Roman", "Iowan Old Style", "Songti SC", serif;
   font-weight: 700; font-size: 17px; line-height: 1;
-  letter-spacing: -.02em;
+  letter-spacing: -.03em;
+  text-shadow: 0 0 2px rgba(255, 255, 255, .9), 0 0 1px rgba(255, 255, 255, .9);
 }
 .card .suit {
-  font-size: 14px; line-height: 1; margin-top: 1px;
-  font-variant-emoji: text;               /* 避免个别系统把 ♥♦ 渲染成彩色 emoji */
+  font-size: 12px; line-height: 1; margin-top: 1px;
+  font-variant-emoji: text;
+  text-shadow: 0 0 2px rgba(255, 255, 255, .9);
 }
+/* 「10」比其他点数宽一位，索引整体收窄一点，免得顶到中央花色 */
+.card .rank.two-char { font-size: 15px; letter-spacing: -.07em; }
+
 .card.red { color: #c8102e; }             /* 经典扑克红，比原来的 #d7263d 沉一档 */
 .card.black { color: #12161c; }
 
@@ -389,32 +441,38 @@
     inset 0 0 0 2px rgba(250, 249, 244, .93),    /* 白芯边（在外） */
     inset 0 0 0 3px rgba(224, 196, 110, .5);     /* 金线（只露内侧 1px） */
 }
-/* 中心徽记：牌背没有子元素，借 ::before 画一枚描边黑桃 */
+/* 中心徽记：牌背没有 data-suit，::before 的 attr() 取不到值，这里显式给一枚黑桃。
+   牌背也不要正面的角落暗纹。 */
 .card.back::before {
   content: '♠';
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 19px; line-height: 1;
+  left: 50%; top: 50%;
+  font-size: 19px;
   color: rgba(224, 196, 110, .62);
   text-shadow: 0 1px 1px rgba(0, 0, 0, .5);
-  font-variant-emoji: text;
 }
-.card.back::after { content: none; }      /* 牌背不要正面的花色水印 */
+.card.back::after { content: none; }
 
 /* 座位里的底牌：所有人一个尺寸。本人明牌与对手牌背用的都是这一条规则，
- * 「谁的牌」靠朝向和座位高亮区分，不靠大小 —— 以前自己的牌是对手的两倍宽。 */
+ * 「谁的牌」靠朝向和座位高亮区分，不靠大小 —— 以前自己的牌是对手的两倍宽。
+ *
+ * 这是**最需要看清**的一档：48×67 的逻辑尺寸在桌面视口下实显只有 43px 宽，
+ * 索引字号要给足，不能只按比例缩。 */
 .card.small { width: 48px; height: 67px; border-radius: 5px; }
-.card.small .rank { font-size: 18px; }
-.card.small .suit { font-size: 15px; }
-.card.small::after { font-size: 25px; right: -2px; bottom: -6px; }
+.card.small::before { font-size: 29px; }
 .card.small.back::before { font-size: 20px; }
 
-/* 结算浮层里的迷你牌：这个尺寸下水印和徽记只会糊成一团脏点，直接关掉，
- * 菱格也退化为纯色底 —— 小尺寸拼的是干净，不是细节密度。 */
+/* 结算浮层里的迷你牌：22×31 放不下「索引 + 中央花色」两套东西，
+ * 硬塞会糊成一团。这个尺寸退回「点数 + 花色居中并排」，拼的是干净不是细节密度。 */
 .card.mini { width: 22px; height: 31px; border-radius: 4px; }
-.card.mini .rank { font-size: 10px; }
-.card.mini .suit { font-size: 9px; margin-top: 0; }
-.card.mini::after, .card.mini.back::before { content: none; }
+.card.mini::before, .card.mini::after { content: none; }
+.card.mini .idx {
+  position: static;
+  flex-direction: row; align-items: center; gap: 1px;
+  width: 100%; height: 100%; justify-content: center;
+}
+.card.mini .rank { font-size: 10px; text-shadow: none; }
+.card.mini .rank.two-char { font-size: 9px; }
+.card.mini .suit { font-size: 8px; margin-top: 0; text-shadow: none; }
 .card.mini.back {
   background: linear-gradient(160deg, #1c3c66, #0a1a30);
   box-shadow:
@@ -422,6 +480,7 @@
     inset 0 0 0 1px rgba(250, 249, 244, .9),
     inset 0 0 0 2px rgba(224, 196, 110, .45);
 }
+.card.mini.back::before { content: none; }
 
 /* ==================== 操作条 ==================== */
 .action-bar {

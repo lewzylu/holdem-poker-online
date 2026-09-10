@@ -5,15 +5,27 @@ window.UI = (function () {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
-  /* 牌面 HTML。data-suit 是给 CSS 的花色水印用的（.card::after 读它），
-   * 取值来自 Cards.SUIT_SYMBOL 这张常量表，只有 ♠♥♦♣ 四种，不含任何用户输入。 */
+  /* 牌面 HTML —— 结构照真牌来：左上角索引（点数 + 小花色竖排）+ 中央大花色。
+   *
+   * 为什么不是「点数 + 花色居中堆叠」：那样看着像个 UI 徽章，而且叠压时
+   * 中间那团正好落在被压区。索引挪到左上角后，牌叠得再多也总能从露出的
+   * 一角读到点数和花色 —— 这也是真牌把索引放角上的原因。
+   *
+   * data-suit 供 CSS 画中央大花色与角落暗纹（.card::before / ::after 读它），
+   * 取值来自 Cards.SUIT_SYMBOL 常量表，只有 ♠♥♦♣ 四种，不含任何用户输入。
+   * .rank / .suit 两个类名保留：tools 的叠压避让断言按它们定位。 */
   function cardHTML(c, size) {
     if (!c) return '<div class="card ' + size + ' back"></div>';
     var sym = Cards.SUIT_SYMBOL[c.s];
+    var label = Cards.RANK_LABEL[c.r];
+    // 「10」比其他点数宽一位，标出来让 CSS 收窄字号，免得索引顶到中央大花色
+    var rankCls = label.length > 1 ? 'rank two-char' : 'rank';
     return '<div class="card ' + size + ' ' + (Cards.isRed(c) ? 'red' : 'black') +
       '" data-suit="' + sym + '">' +
-      '<span class="rank">' + Cards.RANK_LABEL[c.r] + '</span>' +
-      '<span class="suit">' + sym + '</span></div>';
+      '<span class="idx">' +
+        '<span class="' + rankCls + '">' + label + '</span>' +
+        '<span class="suit">' + sym + '</span>' +
+      '</span></div>';
   }
 
   let toastTimer = null;
