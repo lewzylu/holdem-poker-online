@@ -13,14 +13,29 @@
   --radius: 14px;
 }
 * { box-sizing: border-box; }
+/* html 必须有**实色**背景：配合 viewport-fit=cover 时，浏览器用背景**色**
+ * 去填充刘海/圆角/安全区之外的那一圈，背景图不参与。
+ * body 上原本只写了 `background: radial-gradient(...)`，这个简写会把
+ * background-color 重置成 transparent，于是那一圈露出默认的白色画布 ——
+ * 手机横屏上就是屏幕左右两条刺眼的白边（真实反馈过）。
+ *
+ * 注意：html 一旦有了自己的背景，body 的背景就不再向上传播到画布，
+ * 而是只画在 body 盒子里。所以两处都要给实色，缺一处就会在
+ * 「body 盒子之外、画布之内」的区域露白。 */
+html { background-color: var(--bg); }
 html, body { height: 100%; }
 body {
   margin: 0;
-  background: radial-gradient(1200px 700px at 50% -10%, #1b2434, var(--bg));
+  /* 拆开写：颜色和渐变各写各的，避免简写再次把 background-color 冲掉 */
+  background-color: var(--bg);
+  background-image: radial-gradient(1200px 700px at 50% -10%, #1b2434, var(--bg));
   color: var(--txt);
   font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  /* 不用 background-attachment: fixed —— iOS Safari 上固定背景滚动时会卡；
+     溢出区域交给 html 的实色兜底即可 */
+  background-repeat: no-repeat;
 }
 button { font-family: inherit; cursor: pointer; }
 input, select { font-family: inherit; }
@@ -318,15 +333,20 @@ button, .room-item, .lseat, .seat, #raise-slider {
 }
 .panel-toggle { display: none; }
 
-/* ==================== 手机横屏 / 矮屏（高度 ≤ 600px）====================
- * 横屏手机典型视口：844×390、932×430、740×360（CSS 像素）
- * 策略：压缩顶栏与操作条、侧栏改成可召唤的抽屉，把纵向空间全留给牌桌。
+/* ==================== 手机横屏 / 矮屏（横屏且高度 ≤ 600px）====================
+ * 横屏手机典型视口：844×390、932×430、1080×490、740×360（CSS 像素）
+ * 策略：压缩顶栏、侧栏改成可召唤的抽屉、**操作条竖过来放右侧**，
+ * 把纵向空间全部留给牌桌 —— 画布在这类屏上总是卡在高度，省下的每 1px 高
+ * 都直接变成牌桌的 2px 宽。
+ *
+ * 必须带 orientation: landscape：矮的**竖**屏（小平板竖屏、手机横屏转回竖屏的中间态）
+ * 也满足 max-height:600px，但那里宽度才是稀缺资源，把操作条塞到右边会两头都不够用。
  *
  * 注意：这里不能出现任何牌桌内部元素（.felt / .seat / .board / .table-top / 座位里的牌）——
  * 它们在固定逻辑画布里，尺寸是常量，靠 --tscale 整体缩放。
  * 在断点里改它们就等于把「比例固定」这件事又破坏掉了。
  */
-@media (max-height: 600px) {
+@media (max-height: 600px) and (orientation: landscape) {
   .topbar { padding: 4px max(10px, env(safe-area-inset-left)); min-height: 38px; gap: 8px; }
   .brand { font-size: 13px; }
   .brand span { display: none; }
@@ -342,6 +362,10 @@ button, .room-item, .lseat, .seat, #raise-slider {
     gap: 8px;
     height: calc(100vh - 40px); height: calc(100dvh - 40px);
     position: relative;
+    /* 单列：侧栏在这一档是 display:none 的抽屉，但 grid 的列轨道**不会**因为
+       子项隐藏而消失 —— 不改这里的话右边会一直空占 320px，牌桌白白少掉三成宽度
+       （1080 宽的横屏上实测只分到 728px）。抽屉靠 absolute 浮在上面，不占轨道。 */
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /* 侧栏默认收起，点「记录」召唤 */
@@ -358,78 +382,151 @@ button, .room-item, .lseat, .seat, #raise-slider {
   /* 结算浮层里的迷你牌：这个浮层是 fixed 定位、在画布之外，可以跟着屏幕缩 */
   .card.mini { width: 20px; height: 28px; }
   .card.mini .rank { font-size: 9px; }
+  .card.mini .rank.two-char { font-size: 8px; }
   .card.mini .suit { font-size: 8px; }
 
-  /* 操作条 —— 在画布之外，永远不跟着 --tscale 缩小，保证小屏也点得到 */
-  .action-bar { padding: 6px 10px; border-radius: 10px; }
-  .prompt { font-size: 11px; margin-bottom: 5px; }
-  .buttons { gap: 6px; }
-  button.act { min-width: 64px; padding: 8px 10px; font-size: 13px; border-radius: 8px; }
+  /* ---- 操作条移到牌桌右侧 ----
+   * 横屏手机上高度是唯一的稀缺资源（画布受限于高度时，省下 1px 高就等于牌桌大 2px 宽）。
+   * 操作条横在下面要吃掉 60~70px 高，而右侧的宽度本来就是富余的 ——
+   * 把它竖过来放右边，整个高度都还给牌桌：实测 1080×490 上 tscale 0.61 → 0.73。
+   *
+   * 宽度用 clamp 而不是定值：理想宽度是「可用宽 - 2×可用高」（正好让画布卡在高度上），
+   * 但窄机上那个值会小到放不下按钮，所以给 120px 下限兜底。 */
+  .table-main { flex-direction: row; gap: 8px; min-height: 0; }
+  .table-wrap { flex: 1 1 auto; min-width: 0; min-height: 0; }
+  .action-bar {
+    flex: 0 0 auto; width: clamp(120px, 18vw, 180px);
+    margin-top: 0; padding: 6px; border-radius: 10px;
+    display: flex; flex-direction: column; min-height: 0;
+    overflow-y: auto;
+  }
+  .prompt {
+    font-size: 11px; margin: 0 0 5px; min-height: 0;
+    white-space: normal; line-height: 1.35;
+  }
+  /* 竖排布局：计时在最上（最需要瞥见），然后滑杆 + 快捷注额，最后四个按钮两列排开。
+     .buttons 撑满剩余高度，按钮用 min-height 保证落点够大 —— 右侧这一条的高度
+     本来就是白给的（牌桌卡在高度、用不掉这份宽度），空着反而浪费。
+     不用 align-content:stretch：那会把计时和滑杆那两行也一起拉高。 */
+  .buttons { flex: 1 1 auto; flex-wrap: wrap; gap: 5px; align-content: flex-start; }
+  button.act {
+    flex: 1 1 calc(50% - 3px); min-width: 0; min-height: 44px;
+    padding: 9px 4px; font-size: 13px; border-radius: 8px;
+  }
   button.act kbd { display: none; }
-  .raise-box { min-width: 130px; gap: 3px; }
-  #raise-slider { height: 20px; }
-  .quick button { font-size: 10px; padding: 3px 7px; }
-  /* 矮屏：进度条收窄，秒数字号跟着缩，但数字始终保留 —— 它比条更有用 */
-  .timer { gap: 5px; }
-  .timer-track { width: 96px; height: 6px; }
-  .timer-sec { font-size: 13px; }
+  .raise-box {
+    order: -1; width: 100%; min-width: 0;
+    flex-direction: column; align-items: stretch; gap: 4px;
+  }
+  #raise-slider { width: 100%; min-width: 0; height: 18px; }
+  .quick { gap: 3px; }
+  .quick button { flex: 1; font-size: 10px; padding: 3px 2px; }
+  /* 计时置顶并横向撑满：秒数比进度条有用，条收窄让位给数字 */
+  .timer { order: -2; width: 100%; gap: 5px; margin-bottom: 2px; }
+  .timer-track { flex: 1; width: auto; height: 6px; }
+  .timer-sec { font-size: 14px; }
 
   /* 结算浮层别挡住桌面 */
   .result-float { bottom: 72px; padding: 10px 14px; min-width: 300px; }
   .result-float h4 { font-size: 13px; margin-bottom: 7px; }
 }
 
-/* 超矮屏（如 iPhone SE 横屏 667×375、部分安卓 640×320）——同样只压画布之外的东西 */
-@media (max-height: 430px) {
-  .action-bar { padding: 4px 8px; }
-  button.act { min-width: 56px; padding: 6px 8px; font-size: 12px; }
-  .prompt { font-size: 10px; margin-bottom: 3px; }
+/* 超矮屏（如 iPhone SE 横屏 667×375、部分安卓 640×320）——同样只压画布之外的东西。
+   操作条已在右侧竖排，这里只是把内边距与字号再收一档，别写 min-width（两列会被撑破）。 */
+@media (max-height: 430px) and (orientation: landscape) {
+  .action-bar { padding: 5px 4px; }
+  button.act { padding: 7px 3px; font-size: 12px; min-height: 34px; }
+  .prompt { font-size: 10px; margin-bottom: 4px; }
+  .quick button { font-size: 9px; }
+  .timer-sec { font-size: 13px; }
   .result-float { bottom: 62px; min-width: 260px; }
 }
 
-/* ==================== 竖屏：提示旋转到横屏 ====================
- * 牌桌是固定 2:1 的画布，竖屏下缩放系数会被高度以外的那一维压到很小，
- * 与其在竖屏另做一套版式（那就等于又有两套比例了），不如直接引导用户转屏。
+/* ==================== 竖屏 ====================
+ * 早先这里是「强制引导旋转到横屏」：把 .table-fit 整个 display:none，
+ * 只留一张转屏提示卡。代价是竖屏用户**完全看不到牌**，只能盲操作，
+ * 而很多人就是单手竖着玩的 —— 所以改成竖屏照常显示牌桌。
  *
- * 纯 CSS 驱动，JS 不判断方向：牌局照常进行，倒计时照常走，超时照常触发。
- * .table-fit 被 display:none 后 fitCanvas() 量到 0，会跳过写入、留着上一次的值。 */
-.rotate-hint { display: none; }
-@media (orientation: portrait) {
-  .table-fit { display: none; }
-  .table-wrap { min-height: 240px; }
-  .rotate-hint {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-    border: 1px dashed var(--line); border-radius: var(--radius);
-    background: rgba(0, 0, 0, .25); text-align: center; padding: 20px;
-  }
-  .rotate-hint .rh-icon {
-    font-size: 40px; color: var(--gold);
-    animation: rh-turn 2.4s ease-in-out infinite;
-  }
-  .rotate-hint .rh-text { font-size: 15px; font-weight: 700; }
-  .rotate-hint .rh-sub { font-size: 12px; color: var(--muted); line-height: 1.6; max-width: 260px; }
+ * 画布仍是固定 2:1（这是「任何设备下比例一致」的根基，不能为竖屏另做一套），
+ * 竖屏下它按**宽度**撑满，高度只用到宽度的一半，上下留白。
+ * 390 宽的手机上缩放系数约 0.32，牌桌高约 195px —— 偏小但完全可读，
+ * 而且比看不见强得多。
+ *
+ * 竖屏空间的分配思路与横屏相反：横屏是「高度紧张，宽度富余」，
+ * 竖屏是「宽度紧张，高度富余」，所以这里不压缩任何东西，
+ * 反而把侧栏放到下方常驻（不再做成抽屉），页面允许纵向滚动。 */
+.rotate-hint { display: none; }             /* 转屏引导已废弃；样式留一条兜底，防止旧缓存页面弹出它 */
 
-  /* 竖屏下允许纵向滚动，操作条与侧栏照常可用 —— 牌局不因为看不到牌桌而中断 */
-  .layout { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; gap: 10px; }
-  .side { flex-direction: column; }
-  .topbar { flex-wrap: wrap; gap: 6px; }
-  .tinfo { order: 3; width: 100%; }
-  .me { margin-left: auto; }
-  .buttons { justify-content: space-between; }
-  button.act { flex: 1; min-width: 0; }
-  .raise-box { min-width: 100%; order: 5; }
+@media (orientation: portrait) {
+  /* 顶栏压紧：竖屏下它默认换行成三排（品牌 / 按钮 / 房间信息），吃掉 132px，
+     而牌桌按宽度缩后只有 176px 高 —— 顶栏比牌桌还占地方。
+     按钮缩小、房间信息并进同一行，压到 ~76px。 */
+  .topbar { flex-wrap: wrap; gap: 5px 8px; padding: 5px 10px; min-height: 0; }
+  .brand { font-size: 14px; }
+  .tinfo { order: 3; width: 100%; font-size: 11px; padding: 0; }
+  .me { margin-left: auto; font-size: 12px; gap: 5px; }
+  .chip-badge { padding: 1px 7px; font-size: 12px; }
+  .topbtns { order: 4; gap: 6px; }
+  .topbtns button.ghost { padding: 4px 9px; font-size: 12px; }
+
+  /* 牌桌区按宽度定高：2:1 画布刚好填满，不留多余空白。
+     必须同时解开 flex:1（基础样式给的）—— 否则 .table-main 会把它拉伸到
+     剩余全高（实测 473px），而画布只用其中 176px，中间空一大截。
+     用 aspect-ratio 而不是写死高度：任何机型宽度下都刚好包住画布。 */
+  .table-wrap { flex: none; aspect-ratio: 2 / 1; min-height: 0; height: auto; }
+
+  /* 牌桌左右不留边距：竖屏下宽度是唯一的稀缺资源，画布按宽度缩放，
+     每省 1px 边距，牌桌就大 1px。 */
+  .layout { padding-left: max(4px, env(safe-area-inset-left)); padding-right: max(4px, env(safe-area-inset-right)); }
+
+  /* 竖屏允许纵向滚动：牌桌 + 操作条 + 侧栏依次竖排。
+     列必须写 minmax(0, 1fr)：grid 轨道的 min-width 默认是 auto，
+     操作条里 .raise-box / button.act 的固有最小宽度会把整列撑到视口之外
+     （390 宽的手机上实测撑到 957，整页横向滚动）。 */
+  .layout {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: auto;
+    height: auto; gap: 10px;
+  }
+  .table-main { min-width: 0; }
+  .side { display: flex; flex-direction: column; width: auto; min-width: 0; overflow: visible; }
+  /* 三个 panel 竖排：窄屏断点里它们是横排的（.side{flex-direction:row}），
+     竖屏下横排会让聊天面板撑破视口（390 宽实测溢出到 504）。 */
+  .side .panel { flex: none; width: auto; min-width: 0; }
+
+  /* 操作条：按钮撑满一行，滑杆与计时各占一行 —— 竖屏宽度紧张，
+     挤在一行会让每个按钮都小到点不准。这里高度不是稀缺资源。
+     button.act 必须解开 min-width（基础值 82px，四个并排就超 390 屏宽）。 */
+  .buttons { justify-content: space-between; flex-wrap: wrap; }
+  button.act { flex: 1 1 0; min-width: 0; padding: 9px 6px; }
+  .raise-box { min-width: 0; width: 100%; order: 5; flex-direction: row; align-items: center; gap: 8px; }
+  #raise-slider { flex: 1 1 auto; min-width: 0; }
+  .quick { flex-shrink: 0; }
   .timer { width: 100%; order: 6; }
   .timer-track { flex: 1; width: auto; }
 }
-@keyframes rh-turn {
-  0%, 100% { transform: rotate(-12deg); }
-  50%      { transform: rotate(78deg); }
+
+/* 竖屏 + 矮（小平板竖屏、折叠屏展开等）：横屏矮屏那一档已按 orientation 排除，
+   顶栏的压缩规则要在这里补回来，否则窄高屏上顶栏会占掉过多高度。
+   布局本身沿用上面的竖屏规则（单列、可滚动），不需要再改。 */
+@media (orientation: portrait) and (max-height: 600px) {
+  .brand span { display: none; }
+  .topbtns button.ghost { padding: 4px 9px; font-size: 12px; }
+  .panel-toggle { display: none; }          /* 竖屏侧栏常驻下方，不需要抽屉开关 */
+  .layout { height: auto; }
+  .side, .side.open {
+    display: flex; flex-direction: column; position: static;
+    width: auto; min-width: 0; background: none; border: 0; padding: 0;
+  }
+  .side.open .panel { flex: none; margin-bottom: 12px; }
 }
 
-/* 安全区（刘海屏 / 圆角） */
+/* 安全区（刘海屏 / 圆角）。
+ * 只作用于横屏：竖屏下宽度是稀缺资源，边距在竖屏断点里单独收到 4px，
+ * 这里若不限定方向会把它覆盖回 12px（左右白丢 16px，牌桌跟着缩小）。 */
 @supports (padding: env(safe-area-inset-left)) {
-  .layout { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  @media (orientation: landscape) {
+    .layout { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  }
   .action-bar { margin-bottom: env(safe-area-inset-bottom); }
 }
 .waiting {
@@ -480,15 +577,27 @@ button, .room-item, .lseat, .seat, #raise-slider {
 .result-float .result-board { display: flex; gap: 4px; margin-bottom: 10px; }
 .result-float .res-row { margin-bottom: 4px; }
 
-/* 窄屏：主区改成单列（侧栏挪到下方，允许滚动）。
- * 注意 min-height:601px —— 矮屏（手机横屏）要交给上面的 @media (max-height:600px) 处理，
- * 那里要求「一屏放下」，不能把 height 重置成 auto，否则牌桌会塌成 0 高度。 */
-@media (max-width: 1000px) and (min-height: 601px) {
-  .lobby { grid-template-columns: 1fr; }
-  .layout { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
+/* 窄屏且够高：主区改成单列（侧栏挪到下方，允许滚动）。
+ *
+ * 三个条件缺一不可：
+ * - min-height:601px —— 矮屏（手机横屏）交给上面的 @media (max-height:600px)，
+ *   那里要求「一屏放下」，不能把 height 重置成 auto，否则牌桌会塌成 0 高度。
+ * - orientation:landscape —— 竖屏交给上面的竖屏断点。本规则块排在竖屏之后，
+ *   同优先级下后来居上，不排除的话它的 .side{flex-direction:row} 和
+ *   .table-wrap{min-height:56vh} 会把竖屏规则整个盖掉（真实踩到过：
+ *   竖屏下三个 panel 横向并排撑破视口，牌桌区也被撑到 56vh 而画布只用一半）。
+ *
+ * 于是这一档实际覆盖的是「窄桌面窗口 / 平板横屏」。 */
+@media (max-width: 1000px) and (min-height: 601px) and (orientation: landscape) {
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; height: auto; }
   .side { flex-direction: row; }
   .panel { flex: 1; }
   /* height:auto 之后 .table-wrap 的 flex:1 会解析成 0 高度，fitCanvas() 就量不到可用区域。
      给一个确定的最小高度，画布才有东西可以按比例填。 */
   .table-wrap { min-height: 56vh; }
+}
+
+/* 大厅的窄屏单列与方向无关，单独留一条 */
+@media (max-width: 1000px) {
+  .lobby { grid-template-columns: 1fr; }
 }

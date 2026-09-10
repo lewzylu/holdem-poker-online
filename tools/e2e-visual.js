@@ -125,9 +125,14 @@ for (const v of VIEWS) {
     const minW = Math.min.apply(null, g.acts.map(a => a.box.w));
     ok(minH >= 26 && minW >= 44,
       '操作按钮触摸目标够大（最小 ' + minW + '×' + minH + '，tscale=' + g.ts.toFixed(2) + '）');
-    // 按钮不在画布内 ⇒ 不受 transform 影响
-    ok(g.canvas === null || g.acts.every(a => a.box.y >= g.canvas.bt - 1),
-      '操作按钮位于画布下方（不随画布缩放）');
+    // 按钮必须在画布**之外**（不被 --tscale 缩小）。
+    // 早先这条写成「位于画布下方」，是把当时的版式当成了契约；
+    // 横屏已改成操作条竖排在牌桌右侧，判据回到本意：与画布矩形无交集。
+    const outside = g.acts.every(a => {
+      const b = a.box, c = g.canvas;
+      return !c || b.x >= c.rt - 1 || b.rt <= c.x + 1 || b.y >= c.bt - 1 || b.bt <= c.y + 1;
+    });
+    ok(outside, '操作按钮在画布之外（不随画布缩放）');
   }
 
   // 4. 倒计时可读
@@ -183,14 +188,19 @@ if (seatCoords.length >= 2) {
   if (bad.length) bad.forEach(b => console.log('      ' + b.name + '：' + b.coords));
 }
 
-/* ---------- 竖屏：引导显示，但牌局不中断 ---------- */
-console.log('[竖屏 390×844：旋转引导]');
+/* ---------- 竖屏：牌桌照常可见，牌局不中断 ----------
+ * 早先竖屏是「隐藏牌桌 + 显示转屏引导」，现已废弃 —— 竖屏用户看不到牌只能盲操作。
+ * 现在画布按宽度撑满，比例仍固定 2:1。 */
+console.log('[竖屏 390×844：牌桌可见且不横向溢出]');
 ab('set viewport 390 844');
 sleep(2);
 const PP = "JSON.stringify((function(){var ft=document.querySelector('.table-fit');var rh=document.querySelector('.rotate-hint');" +
   "var b=document.querySelector('.action-bar');var br=b?b.getBoundingClientRect():null;" +
-  "return{fit:ft?getComputedStyle(ft).display:'?',hint:rh?getComputedStyle(rh).display:'?'," +
-  "hintText:rh?rh.textContent.replace(/\\s+/g,' ').trim().slice(0,20):''," +
+  "var cv=document.querySelector('.table-canvas');var cr=cv?cv.getBoundingClientRect():null;" +
+  "return{fit:ft?getComputedStyle(ft).display:'?',hint:rh?getComputedStyle(rh).display:'none'," +
+  "cw:cr?Math.round(cr.width):0,ch:cr?Math.round(cr.height):0," +
+  "seats:document.querySelectorAll('#seats .seat').length," +
+  "sw:document.documentElement.scrollWidth,vw:innerWidth," +
   "barH:br?Math.round(br.height):0,timerShown:!(document.querySelector('#timer')||{}).hidden," +
   "sec:(document.querySelector('#timer-sec')||{}).textContent||''," +
   "phase:(document.querySelector('#phase')||{}).textContent||''};})())";
@@ -202,8 +212,16 @@ for (let i = 0; i < 12; i++) {
 }
 if (!pt) { fails++; console.log('    ✗ 读不到页面'); }
 else {
-  ok(pt.hint !== 'none', '竖屏显示旋转引导（' + pt.hintText + '…）');
-  ok(pt.fit === 'none', '竖屏隐藏牌桌画布（.table-fit display=' + pt.fit + '）');
+  ok(pt.hint === 'none', '不再强制转屏（引导已废弃）');
+  ok(pt.fit !== 'none', '竖屏照常显示牌桌画布（.table-fit display=' + pt.fit + '）');
+  ok(pt.cw > 0 && pt.ch > 0, '竖屏画布有实际尺寸（' + pt.cw + '×' + pt.ch + '）');
+  if (pt.ch > 0) {
+    ok(Math.abs(pt.cw / pt.ch - 2) < 0.02,
+      '竖屏下画布仍保持 2:1（' + (pt.cw / pt.ch).toFixed(3) + '）');
+  }
+  ok(pt.seats === 9, '竖屏渲染出 9 个槽位（实际 ' + pt.seats + '）');
+  // 竖屏最容易踩的坑：grid 轨道 min-width:auto + 操作条固有宽度 → 整页横向滚动
+  ok(pt.sw <= pt.vw + 2, '竖屏无横向溢出（scrollWidth ' + pt.sw + ' ≤ ' + pt.vw + '）');
   ok(pt.barH > 0, '竖屏下操作条仍可见（高 ' + pt.barH + '）');
   // 牌局没中断：阶段在变化，或者观察窗口内本人拿到过倒计时
   ok(phases.size > 1 || sawTimer,
