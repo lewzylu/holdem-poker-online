@@ -101,6 +101,16 @@
   </aside>
 </div>
 
+<!-- 竖屏引导：本游戏强制横屏。默认隐藏，只有 @media(orientation:portrait) 才显示，
+     显示时铺满全屏盖住牌桌，提示用户把设备转到横屏。 -->
+<div class="rotate-hint" id="rotate-hint">
+  <div class="rotate-card">
+    <div class="rotate-icon">📱</div>
+    <h2>请旋转到横屏</h2>
+    <p>德州扑克需要横屏游玩<br>请把设备转到横向以获得完整牌桌</p>
+  </div>
+</div>
+
 <div class="result-float" id="result" hidden></div>
 <div id="toast" class="toast"></div>
 

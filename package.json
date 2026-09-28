@@ -12,15 +12,22 @@
     "test:nav": "node tools/nav-test.js",
     "test:layout": "node tools/layout-test.js"
   },
-  "keywords": ["poker", "texas-holdem", "websocket"],
+  "keywords": [
+    "poker",
+    "texas-holdem",
+    "websocket"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "agent-browser": "^0.27.0",
     "jsdom": "^24.1.1"
   }
 }

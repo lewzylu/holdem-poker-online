@@ -83,23 +83,13 @@ for (const d of DEVICES) {
   ok(opaque(g.htmlBg) && opaque(g.bodyBg),
     'html 与 body 都有实色背景，安全区不露白（html=' + g.htmlBg + '，body=' + g.bodyBg + '）');
 
-  /* ---------- 竖屏：牌桌照常显示，只是按宽度缩放 ----------
-   * 早先竖屏是「隐藏牌桌 + 显示转屏引导」，现已废弃：竖屏用户看不到牌只能盲操作。
-   * 现在画布在竖屏下按**宽度**撑满（高度只用到宽度的一半），比例仍是固定 2:1。 */
+  /* ---------- 竖屏：强制横屏，显示转屏引导 ----------
+   * 本游戏强制横屏。竖屏下隐藏整个牌桌界面（顶栏 / 牌桌 / 操作条 / 侧栏），
+   * 铺满一张「请旋转到横屏」的引导卡。用户转到横屏后引导消失、牌桌照常显示。 */
   if (d.portrait) {
-    ok(g.rotate === 'none', '不再强制转屏（引导已废弃，display=' + g.rotate + '）');
-    ok(g.fitDisp !== 'none', '竖屏照常显示牌桌画布（.table-fit display=' + g.fitDisp + '）');
-    ok(!!g.canvas && g.canvas.w > 0, '竖屏画布有实际尺寸（' +
-      (g.canvas ? g.canvas.w + '×' + g.canvas.h : '量不到') + '）');
-    if (g.canvas && g.canvas.h > 0) {
-      ok(Math.abs(g.canvas.w / g.canvas.h - 2) < 0.02,
-        '竖屏下画布仍保持 2:1（' + (g.canvas.w / g.canvas.h).toFixed(3) + '）');
-      // 竖屏宽度是稀缺资源，画布应当基本吃满可用宽度（留白不超过 8%）
-      ok(g.fit && g.canvas.w >= g.fit.w * 0.92,
-        '竖屏画布吃满可用宽度（' + g.canvas.w + ' / ' + (g.fit ? g.fit.w : '?') + '）');
-    }
-    ok(g.seats.length === 9, '竖屏也渲染出 9 个槽位（实际 ' + g.seats.length + '）');
-    ok(g.bar && g.bar.h > 0, '竖屏下操作条仍然可见（高 ' + (g.bar ? g.bar.h : 0) + '）');
+    ok(g.rotate !== 'none', '竖屏显示转屏引导（.rotate-hint display=' + g.rotate + '）');
+    ok(g.fitDisp === 'none', '竖屏隐藏牌桌画布（.table-fit display=' + g.fitDisp + '）');
+    ok(g.sw <= g.vw + 2, '竖屏引导页无横向滚动（scrollWidth ' + g.sw + ' ≤ ' + g.vw + '）');
     const shotP = path.join(SHOT_DIR, d.w + 'x' + d.h + '.png');
     ab('screenshot "' + shotP + '"', true);
     console.log('    截图 → ' + path.relative(process.cwd(), shotP) + '\n');

@@ -182,13 +182,10 @@
  * 也没有加旋转做扇形：牌 48×67 旋 6° 纵向就会多出约 4.6px，
  * 而侧边两席的余量只有 14px，一转就跌破 10px 安全线。 */
 .hole .card + .card { margin-left: -14px; }
-/* 被压住的那张牌（非最后一张）关掉右下角暗纹：它正落在被压区，
- * 只会在叠压缝隙里露出一小截，糊成脏边。
- *
- * 注：这里曾有一条「把点数和花色左移 7px 避让」的规则。牌面改成
- * 「左上角索引 + 中央大花色」后不再需要 —— 索引本来就在露出的那一角，
- * 叠压余量反而从 11.8px 涨到 20.2px。 */
-.hole .card:not(:last-child)::after { content: none; }
+/* 注：这里曾有一条「把点数和花色左移 7px 避让」的规则，以及一条给被压住的牌
+ * 关掉右下角暗纹的规则。牌面改成「左上角索引 + 中央大花色」后前者不再需要
+ * （索引本来就在露出的那一角，叠压余量从 11.8px 涨到 20.2px）；花色改用 SVG、
+ * 去掉右下角暗纹后后者也一并移除。 */
 
 /* 头像 + 昵称 + 筹码合成一行：所有人共用这一套结构，本人与对手不再有两套尺寸表。
  * overflow:hidden 是必需的：中文昵称 + 五位数筹码会超出 140px 的卡片，
@@ -327,10 +324,10 @@
  * 结构照真牌来（见 common.js 的 cardHTML）：
  *
  *   ┌─────────┐
- *   │ A       │   .idx = 左上角索引：点数在上、小花色在下，竖排左对齐
+ *   │ A       │   .idx  = 左上角索引：点数在上、小花色 SVG 在下，竖排左对齐
  *   │ ♠       │
- *   │    ♠    │   ::before = 中央大花色，牌的主视觉
- *   │       ♠ │   ::after  = 右下角淡花色暗纹（旋 180°，呼应真牌的双向对称）
+ *   │    ♠    │   .pip  = 中央大花色 SVG，牌的主视觉
+ *   │         │
  *   └─────────┘
  *
  * 索引放角上不是为了好看：叠压时中间那团正好落在被压区，而角上的索引
@@ -338,15 +335,17 @@
  *
  * 清晰度靠三件事：
  *   1. 点数与花色**分离**，各占一处，不再挤在一起互相干扰
- *   2. 中央大花色给足字号（.small 下 30px），远看一眼辨色、辨形
- *   3. 点数用衬线体 + 微弱白描边，压在浅色底上边缘也不发虚
+ *   2. 中央大花色 SVG 给到牌宽 ~58%，远看一眼辨色、辨形
+ *   3. 点数用 Palatino 系衬线体 + 极淡高光，边缘锐利不发虚
  *
- * 不引任何外部字体：牌桌必须能离线渲染，字体栈全部走系统。 */
+ * 花色一律用内联 SVG（common.js 的 SUIT_SVG），不用 Unicode ♠♥♦♣：
+ * 字符花色的字形各平台不一、还可能被渲染成彩色 emoji，SVG 才能保证每台设备一个样。
+ * 除此之外不引任何外部字体：牌桌必须能离线渲染，字体栈全部走系统。 */
 .card {
   position: relative;
   width: 46px; height: 64px;
   border-radius: 6px;
-  overflow: hidden;                      /* 兜住角落暗纹，不让它漏出圆角 */
+  overflow: hidden;                      /* 裁掉超出圆角的内容（牌背菱格 / 花色边缘） */
   /* 象牙白而不是纯白：纯白在墨绿桌面上发飘，压一点暖调才像纸。
      斜向高光模拟牌面受光，让平面有一点起伏。 */
   background:
@@ -361,30 +360,20 @@
 }
 
 /* ---- 中央大花色：牌的主视觉 ----
- * 这是「远看能不能一眼认出花色」的关键，所以字号给到牌宽的 60% 以上。
- * 稍微下移（58%）而不是正中：上方要给左上角索引让出呼吸空间，
- * 挨太近两者会互相干扰（第一版取 53%，放大看索引和花色几乎连成一片）。 */
-.card::before {
-  content: attr(data-suit);
-  position: absolute; left: 52%; top: 58%;
+ * 「远看能不能一眼认出花色」的关键，所以给到牌宽的 ~58%。改用 SVG（见 common.js
+ * 的 SUIT_SVG）而不是字体字符：字形由我们自定义、各设备完全一致，
+ * fill=currentColor 让它跟随红/黑牌色，按牌尺寸等比缩放，不依赖任何系统字体。
+ * 稍微下移（top 57%）而不是正中：上方给左上角索引让出呼吸空间。
+ *
+ * 旧版还有一枚右下角旋 180° 的淡花色「暗纹」（字体渲染）—— 已随字体花色一并去掉：
+ * SVG 大花色本身就是干净利落的主视觉，补白暗纹反而显脏。 */
+.card .pip {
+  position: absolute; left: 50%; top: 57%;
   transform: translate(-50%, -50%);
-  font-size: 28px; line-height: 1;
-  color: currentColor;
-  font-variant-emoji: text;              /* 避免个别系统把 ♥♦ 渲染成彩色 emoji */
-  text-shadow: 0 1px 0 rgba(255, 255, 255, .55);
-  pointer-events: none;
-}
-/* ---- 右下角暗纹 ----
- * 旋 180° 与左上角索引形成对角呼应（真牌两端对称，倒过来拿也一样读）。
- * 透明度必须压得很低：第一版给了 .3，放大看像第三枚花色在跟中央大花色抢
- * 注意力，反而更乱。.16 只在凑近时隐约可见，起到补白作用就够了。 */
-.card::after {
-  content: attr(data-suit);
-  position: absolute; right: 3px; bottom: 2px;
-  transform: rotate(180deg);
-  font-size: 10px; line-height: 1;
-  color: currentColor; opacity: .16;
-  font-variant-emoji: text;
+  width: 58%; height: auto;
+  fill: currentColor;
+  /* 底部一条极淡白高光，模拟花色印在纸面上的微微凸起，不发虚 */
+  filter: drop-shadow(0 .5px 0 rgba(255, 255, 255, .45));
   pointer-events: none;
 }
 
@@ -399,22 +388,26 @@
   z-index: 1;                            /* 压在中央大花色之上 */
 }
 .card .rank {
-  /* 衬线体是「高级感」性价比最高的一处：无衬线的数字像 UI 控件，衬线的才像牌。
-     白描边让点数压在中央花色边缘时也不发虚。
-     字号按「实显能读」定而不是按牌宽比例缩：公共牌逻辑宽 46px，在桌面视口下
-     实显只有 41px，索引给小了远看就是一团糊。 */
-  font-family: Georgia, "Times New Roman", "Iowan Old Style", "Songti SC", serif;
-  font-weight: 700; font-size: 17px; line-height: 1;
-  letter-spacing: -.03em;
-  text-shadow: 0 0 2px rgba(255, 255, 255, .9), 0 0 1px rgba(255, 255, 255, .9);
+  /* 衬线体是「像牌不像 UI 控件」的关键。字体栈从 Georgia 升级到 Palatino 系
+     （Palatino Linotype / Book Antiqua / Palatino）：字形更修长优雅、衬线更考究，
+     是最接近专业扑克牌点数的系统字体；逐级回退到 Georgia / Times / 宋体保证各平台都有得用。
+     字号按「实显能读」定而不是按牌宽比例缩：公共牌逻辑宽 46px，桌面视口下实显仅 41px，
+     索引给小了远看就是一团糊。
+     花色移到 SVG、中央花色下移后，点数不再压在花色上，于是把旧的厚重白色光晕
+     换成一条极淡的底部高光 —— 数字边缘更锐利干净，不再发虚。 */
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Iowan Old Style",
+               Georgia, "Times New Roman", "Songti SC", serif;
+  font-weight: 800; font-size: 18px; line-height: .95;
+  letter-spacing: -.01em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .5);
 }
+/* 左上角小花色：与中央大花色同一枚 SVG，只是尺寸小。fill 跟随牌色。 */
 .card .suit {
-  font-size: 12px; line-height: 1; margin-top: 1px;
-  font-variant-emoji: text;
-  text-shadow: 0 0 2px rgba(255, 255, 255, .9);
+  display: block; width: 11px; height: 11px; margin-top: 2px;
+  fill: currentColor;
 }
 /* 「10」比其他点数宽一位，索引整体收窄一点，免得顶到中央花色 */
-.card .rank.two-char { font-size: 15px; letter-spacing: -.07em; }
+.card .rank.two-char { font-size: 15px; letter-spacing: -.06em; }
 
 .card.red { color: #c8102e; }             /* 经典扑克红，比原来的 #d7263d 沉一档 */
 .card.black { color: #12161c; }
@@ -441,16 +434,13 @@
     inset 0 0 0 2px rgba(250, 249, 244, .93),    /* 白芯边（在外） */
     inset 0 0 0 3px rgba(224, 196, 110, .5);     /* 金线（只露内侧 1px） */
 }
-/* 中心徽记：牌背没有 data-suit，::before 的 attr() 取不到值，这里显式给一枚黑桃。
-   牌背也不要正面的角落暗纹。 */
-.card.back::before {
-  content: '♠';
-  left: 50%; top: 50%;
-  font-size: 19px;
-  color: rgba(224, 196, 110, .62);
-  text-shadow: 0 1px 1px rgba(0, 0, 0, .5);
+/* 中心徽记：牌背放一枚居中的金色黑桃 SVG（common.js 注入 .pip.back-pip），
+   与牌面用同一套花色字形。覆盖 .card .pip 的默认下移与红/黑填色 —— 徽记要正中 + 金色。 */
+.card.back .pip {
+  top: 50%; width: 40%;
+  fill: rgba(224, 196, 110, .62);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .5));
 }
-.card.back::after { content: none; }
 
 /* 座位里的底牌：所有人一个尺寸。本人明牌与对手牌背用的都是这一条规则，
  * 「谁的牌」靠朝向和座位高亮区分，不靠大小 —— 以前自己的牌是对手的两倍宽。
@@ -458,13 +448,11 @@
  * 这是**最需要看清**的一档：48×67 的逻辑尺寸在桌面视口下实显只有 43px 宽，
  * 索引字号要给足，不能只按比例缩。 */
 .card.small { width: 48px; height: 67px; border-radius: 5px; }
-.card.small::before { font-size: 29px; }
-.card.small.back::before { font-size: 20px; }
 
 /* 结算浮层里的迷你牌：22×31 放不下「索引 + 中央花色」两套东西，
  * 硬塞会糊成一团。这个尺寸退回「点数 + 花色居中并排」，拼的是干净不是细节密度。 */
 .card.mini { width: 22px; height: 31px; border-radius: 4px; }
-.card.mini::before, .card.mini::after { content: none; }
+.card.mini .pip { display: none; }        /* 迷你牌太小放不下中央大花色，只留 idx 行 */
 .card.mini .idx {
   position: static;
   flex-direction: row; align-items: center; gap: 1px;
@@ -472,7 +460,7 @@
 }
 .card.mini .rank { font-size: 10px; text-shadow: none; }
 .card.mini .rank.two-char { font-size: 9px; }
-.card.mini .suit { font-size: 8px; margin-top: 0; text-shadow: none; }
+.card.mini .suit { width: 8px; height: 8px; margin-top: 0; }
 .card.mini.back {
   background: linear-gradient(160deg, #1c3c66, #0a1a30);
   box-shadow:
@@ -480,7 +468,6 @@
     inset 0 0 0 1px rgba(250, 249, 244, .9),
     inset 0 0 0 2px rgba(224, 196, 110, .45);
 }
-.card.mini.back::before { content: none; }
 
 /* ==================== 操作条 ==================== */
 .action-bar {
