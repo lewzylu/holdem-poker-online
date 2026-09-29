@@ -9,6 +9,7 @@ const BASE_FILE = process.env.POKER_DATA || path.join(DATA_DIR, 'users.json');
 const START_CHIPS = 5000;          // 注册赠送
 const MIN_BUYIN = 100;
 const MAX_BUYIN = 5000;
+const BOT_BANKROLL = 1000000;      // 机器人账号余额（练习房自动补码用）
 
 const SESSION_TTL = 30 * 24 * 3600 * 1000;   // 登录状态有效期（README 承诺的 30 天）
 const MAX_SESSIONS = 5000;                   // 会话上限，防止无限增长
@@ -222,8 +223,33 @@ function recordHand(name, won) {
   save();
 }
 
+/** 机器人账号：只在练习房入座用，不进排行榜，也不能登录。
+ *  hash 直接填随机数 —— 它不对应任何真实口令，因此没有任何人能登录这个账号。
+ *  刻意不跑 scrypt：机器人只在启动时建几个，没必要为它阻塞事件循环。 */
+function ensureBot(name, chips) {
+  const k = key(name);
+  const want = chips === undefined ? BOT_BANKROLL : chips;
+  let u = db.users[k];
+  if (u) {
+    u.bot = true;
+    if (u.chips < want) u.chips = want;   // 余额见底就补满：练习房要能一直跑下去
+    save();
+    return u;
+  }
+  u = {
+    key: k, name: String(name), salt: crypto.randomBytes(16).toString('hex'),
+    hash: crypto.randomBytes(32).toString('hex'),
+    chips: want, createdAt: Date.now(),
+    stats: { hands: 0, won: 0 }, bot: true
+  };
+  db.users[k] = u;
+  save();
+  return u;
+}
+
 function leaderboard(n = 20) {
   return Object.values(db.users)
+    .filter(u => !u.bot)                  // 机器人不参与排名
     .map(publicUser)
     .sort((a, b) => b.chips - a.chips)
     .slice(0, n);
@@ -236,8 +262,8 @@ pruneSessions();
 seedDefaults();
 
 module.exports = {
-  START_CHIPS, MIN_BUYIN, MAX_BUYIN, SESSION_TTL,
+  START_CHIPS, MIN_BUYIN, MAX_BUYIN, SESSION_TTL, BOT_BANKROLL,
   register, login, logout, userByToken, publicUser, getUser,
-  addChips, recordHand, leaderboard,
+  addChips, recordHand, leaderboard, ensureBot,
   _db: db, _save: save
 };

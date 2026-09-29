@@ -346,6 +346,7 @@
           : '<div class="card small back"></div><div class="card small back"></div>') + '</div>';
       }
       let badges = '';
+      if (s.bot) badges += '<span class="badge bot">AI</span>';
       if (t.sbIdx === s.i) badges += '<span class="badge sb">小盲</span>';
       if (t.bbIdx === s.i) badges += '<span class="badge bb">大盲</span>';
       if (s.allIn) badges += '<span class="badge allin">ALL IN</span>';

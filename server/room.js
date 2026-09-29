@@ -17,6 +17,39 @@ const RESULT_SHOW_SHOWDOWN_MS = 9000;
 const RESULT_SHOW_FOLD_MS = 4000;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/* 机器人（托管座位）：随机出手的练习对手，不接 WebSocket，由房间自己驱动 */
+const BOT_THINK_MIN = 700;      // 「思考」时长下限（毫秒）
+const BOT_THINK_MAX = 2400;     // 上限：随机取值，避免三个人节奏一致像脚本
+const BOT_REBUY_BB = 4;         // 身后不足 4 个大盲就自动补码
+
+/** 机器人随机出手。legal 是引擎给的合法动作集合（engine.legalActions）。
+ *  策略刻意做得很浅：练习房要的是「牌局一直有动静」，不是会算牌的对手。
+ *  可过牌 → 以过牌为主、间或加注 1/3 底池；被下注 → 跟注/加注/弃牌按概率随机，偶尔全下。
+ *  返回值还会被引擎 sanitize 校正，所以不用纠结边界（加注额不够会被夹成最小加注）。 */
+function pickBotAction(legal) {
+  if (!legal) return { type: 'fold' };
+  const r = Math.random();
+  const canRaise = !!legal.canRaise;
+  if (legal.canCheck) {
+    if (canRaise && r < 0.4) return { type: 'raise', total: thirdPotTotal(legal) };
+    return { type: 'check' };
+  }
+  if (canRaise && r < 0.25) return { type: 'raise', total: thirdPotTotal(legal) };
+  if (r < 0.5) return { type: 'fold' };
+  if (r < 0.53) return { type: 'allin' };   // 全下留小概率：牌局要有波动，但不能每手都推
+  return { type: 'call' };
+}
+
+/** 「加注 1/3 底池」对应的目标下注额：本轮最高注 + 底池的 1/3，再夹进合法区间。
+ *  底池很小时 1/3 池可能低于最小加注，交给夹取逻辑兜成最小加注即可。 */
+function thirdPotTotal(legal) {
+  const total = (legal.roundBet || 0) + Math.round((legal.pot || 0) / 3);
+  const min = legal.minTotal || 0, max = legal.maxTotalBet || 0;
+  if (min && total < min) return min;
+  if (max && total > max) return max;
+  return total;
+}
+
 class Room {
   constructor(id, opts, ctx) {
     this.id = id;
@@ -27,7 +60,7 @@ class Room {
     this.buyIn = opts.buyIn;
     this.seats = [];
     for (let i = 0; i < SEATS; i++) {
-      this.seats.push({ index: i, name: null, chips: 0, leaveAfterHand: false, pendingRebuy: 0 });
+      this.seats.push({ index: i, name: null, chips: 0, bot: false, leaveAfterHand: false, pendingRebuy: 0 });
     }
     this.members = new Set();            // 房间内所有人（含旁观）
     this.status = 'waiting';             // waiting | playing
@@ -63,7 +96,8 @@ class Room {
       status: this.status,
       handCount: this.game ? this.game.handCount : 0,
       seated: this.seats.filter(s => s.name).length,
-      members: [...this.members].map(n => ({ name: n, online: this.ctx.online(n) }))
+      // 机器人没有连接，但它在场且会出手，按在线算：否则房间会显示「0/3 人在线」
+      members: [...this.members].map(n => ({ name: n, online: this.isBot(n) || this.ctx.online(n) }))
     };
   }
   brief() {
@@ -182,6 +216,76 @@ class Room {
     this.pushLog(name + ' 补给 ' + amt + ' 筹码' + (this.game ? '（下一手生效）' : ''), 'system');
     this.broadcast();
     return { ok: true, chips: s.chips };
+  }
+
+  /* ---------------- 机器人座位 ----------------
+   * 机器人是「房间自己驱动」的座位：没有 WebSocket 连接，轮到它时由 botDecide()
+   * 在一段随机延时后替它提交动作。其余流程（下注、摊牌、结算、广播）与真人完全一致。 */
+  isBot(name) {
+    return this.seats.some(s => s.bot && s.name === name);
+  }
+
+  /** 机器人入座。走正常 sit()（同样从账号扣买入、同样占位），额外打上 bot 标记。
+   *  标记之后只影响两件事：决策由谁给（botDecide 而非玩家消息），以及掉线判定。 */
+  addBot(name, seatIndex, amount) {
+    const r = this.sit(name, seatIndex, amount);
+    if (r.error) return r;
+    this.seats[seatIndex].bot = true;
+    return r;
+  }
+
+  /** 机器人补码：身后筹码不够打了就补到买入额，牌局因此永远不会因为机器人破产而停。
+   *  牌局进行中不能直接加进引擎（否则等于拿新钱在本手加注），记进 pendingRebuy，
+   *  由 applyPendingRebuys() 在下一手开始前并入 —— 与真人 rebuy 同一套规则。 */
+  botRebuy() {
+    const floor = this.bb * BOT_REBUY_BB;
+    let refilled = false;
+    this.seats.forEach((s, i) => {
+      if (!s.name || !s.bot || s.chips >= floor) return;
+      const need = this.buyIn - s.chips;
+      if (need <= 0) return;
+      // 机器人账号见底时自动充值：练习房要能一直跑，不能因为账号没钱就停摆
+      if (!db.addChips(s.name, -need) && db.addChips(s.name, db.BOT_BANKROLL)) db.addChips(s.name, -need);
+      s.chips += need;
+      if (this.game) s.pendingRebuy = (s.pendingRebuy || 0) + need;
+      this.pushLog(s.name + ' 自动补给 ' + need + ' 筹码' + (this.game ? '（下一手生效）' : ''), 'system');
+      refilled = true;
+    });
+    if (refilled) this.broadcast();
+    return refilled;
+  }
+
+  /** 一手结算后立刻给输光的机器人补码，直接写进引擎（本手已结算，不影响本手下注）。
+   *  必须赶在引擎判定「桌上剩不到 2 人有筹码 ⇒ 整局结束」之前：engine.finishHand 是在
+   *  onHandEnd 返回**之后**才做这个判定。不补的话，只要两个机器人同时输光，
+   *  整局就被判结束，牌桌要等守护 5 秒重开 —— 玩家看到的是牌局莫名断一下、手数归零。 */
+  botRefillNow() {
+    const g = this.game;
+    if (!g) return;
+    let refilled = false;
+    this.seats.forEach((s, i) => {
+      if (!s.name || !s.bot) return;
+      const es = g.seats[i];
+      if (!es || es.chips > 0) return;
+      const need = this.buyIn - es.chips;
+      if (need <= 0) return;
+      // 机器人账号见底时自动充值：练习房要能一直跑，不能因为账号没钱就停摆
+      if (!db.addChips(s.name, -need) && db.addChips(s.name, db.BOT_BANKROLL)) db.addChips(s.name, -need);
+      es.chips += need;
+      s.chips = es.chips;
+      this.pushLog(s.name + ' 筹码见底，自动补给 ' + need, 'system');
+      refilled = true;
+    });
+    if (refilled) this.broadcast();
+  }
+
+  /** 机器人出手：从合法动作里随机挑一个提交。动作仍会经过引擎 sanitize，
+   *  所以「该加注却没筹码」这类边界不需要在这里处理。 */
+  botDecide() {
+    if (!this.pending) return;
+    const s = this.seats[this.pending.index];
+    if (!s || !s.bot) return;
+    this.finishPending(pickBotAction(this.pending.legal));
   }
 
   /** 牌局进行中时，座位上的 chips 是「本手开始时」的旧值，必须取引擎里的实时值；
@@ -311,7 +415,15 @@ class Room {
         index: p.index, name: p.name, legal,
         resolve, deadline: Date.now() + ACTION_TIMEOUT
       };
+      // 超时定时器照常挂着：万一 botDecide 没跑起来，牌局也不会被永久卡住
       self.pending.timer = setTimeout(() => self.timeoutAction(), ACTION_TIMEOUT);
+      const s = self.seats[p.index];
+      if (s && s.bot) {
+        // 机器人不给 30 秒思考，短随机延时后自动出手。延时随机是为了避免
+        // 三个机器人每手都在同一拍上出手，看起来像脚本在同步跑。
+        const delay = BOT_THINK_MIN + Math.floor(Math.random() * (BOT_THINK_MAX - BOT_THINK_MIN));
+        self.pending.botTimer = setTimeout(() => self.botDecide(), delay);
+      }
       self.broadcast();
     });
   }
@@ -319,6 +431,7 @@ class Room {
   finishPending(action) {
     if (!this.pending) return;
     clearTimeout(this.pending.timer);
+    clearTimeout(this.pending.botTimer);
     const resolve = this.pending.resolve;
     this.pending = null;
     resolve(action || { type: 'fold' });
@@ -360,6 +473,7 @@ class Room {
 
   async onHandEnd(result) {
     this.syncChips();
+    this.botRefillNow();     // 赶在引擎判定「整局结束」之前把输光的机器人补上
     this.seats.forEach((s, i) => {
       if (!s.name || !this.game) return;
       const es = this.game.seats[i];
@@ -399,6 +513,7 @@ class Room {
     try {
       while (epoch === this.epoch && this.status === 'playing' && this.game &&
              !this.game.finished && !this.game.aborted) {
+        this.botRebuy();                    // 机器人筹码见底先补上（补的也走 pendingRebuy）
         this.applyPendingRebuys();          // 上一手中的补给在这一手生效
         const ready = this.seats.filter(s => s.name && s.chips > 0);
         if (ready.length < 2) break;
@@ -477,6 +592,7 @@ class Room {
       return {
         i,
         name: s.name,
+        bot: !!s.bot,                 // 托管座位：前端据此标注 AI，玩家一眼能分清谁是人
         chips: this.displayChips(i),  // 座位显示「身后剩余」，随下注实时减少（不含已进池部分）
         bet: es ? es.bet : 0,
         // 本座位当前还需跟多少才能跟上本轮最高注（0 = 已跟平/可过牌）。
@@ -492,7 +608,7 @@ class Room {
         // 该动作是否由超时自动处置产生，用于把它与玩家主动做出的同类动作区分开。
         // 与序号绑定，因此只要前端看到的还是这一次动作，这个归属就一直成立。
         byTimeout: this._timeoutSeq[i] === this._actionSeq[i] && this._actionSeq[i] > 0,
-        connected: s.name ? this.ctx.online(s.name) : false,
+        connected: s.name ? (!!s.bot || this.ctx.online(s.name)) : false,
         leaveAfterHand: !!s.leaveAfterHand,
         hole: reveal ? es.hole : null,
         hand: (showdown && es && es.hand && !es.folded) ? es.hand.name : null,

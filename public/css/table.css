@@ -291,6 +291,8 @@
 .badge.sb, .badge.bb { background: rgba(74, 158, 255, .85); color: #04121f; }
 .badge.allin { background: rgba(255, 95, 86, .9); color: #2b0705; }
 .badge.hand { background: rgba(46, 204, 113, .85); color: #04240f; }
+/* 机器人座位：紫色，避开小盲/大盲的蓝、全下的红、牌型的绿，不与牌局语义撞色 */
+.badge.bot { background: rgba(178, 138, 255, .9); color: #170a2b; }
 
 /* 「行动中 / 上一步动作」贴在卡片下方左侧：不参与布局（否则座位会随状态变高），
  * 也不和右下角的下注额抢位置（max-width 92 + 左对齐，够不到 .bet 的左边界）。

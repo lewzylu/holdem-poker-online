@@ -125,6 +125,47 @@ const ctx = {
   getUser: name => db.getUser(name)
 };
 
+/* ---------------- 机器人练习房 ----------------
+ * 服务一启动就常驻一桌：几个机器人自己打，玩家随时可以坐下参与。
+ * 关掉：POKER_BOT_ROOM=0　改人数：POKER_BOT_ROOM_BOTS=1..8 */
+const BOT_ROOM_ID = 'PRACTICE1';
+const BOT_NAMES = ['机器人甲', '机器人乙', '机器人丙'];
+const BOT_SEATS = [1, 4, 7];        // 分散坐，给玩家留出连续的空位
+
+function ensureBotRoom() {
+  let room = rooms.get(BOT_ROOM_ID);
+  if (!room) {
+    room = new Room(BOT_ROOM_ID, {
+      host: BOT_NAMES[0], title: '机器人练习房',
+      sb: 5, bb: 10, buyIn: 1000
+    }, ctx);
+    rooms.set(BOT_ROOM_ID, room);
+    console.log('[练习房] 已创建 ' + BOT_ROOM_ID + '（房号可直接输入加入）');
+  }
+  const count = clampInt(process.env.POKER_BOT_ROOM_BOTS, 1, 8, BOT_NAMES.length);
+  for (let k = 0; k < count; k++) {
+    const name = BOT_NAMES[k];
+    db.ensureBot(name);                            // 机器人要有账号才能入座（同真人）
+    if (!room.members.has(name)) room.join(name);  // 成员里留着机器人，房间就永不被回收
+    if (room.seatOf(name) >= 0) continue;
+    // 优先坐预设座位，被玩家占了就顺延到任意空位
+    const want = BOT_SEATS[k];
+    const seat = (room.seats[want] && !room.seats[want].name) ? want : room.seats.findIndex(s => !s.name);
+    if (seat >= 0) room.addBot(name, seat, room.buyIn);
+  }
+  room.botRebuy();                    // 停摆期间筹码见底的先补上，补完才可能开局
+  if (room.status !== 'playing') {
+    const r = room.start(null);
+    if (r.error) console.error('[练习房] 无法开局：' + r.error);
+  }
+}
+
+/* 守护：牌局被结束或异常中断后自动重开，保证「始终有一桌在打」 */
+setInterval(() => {
+  try { ensureBotRoom(); }
+  catch (e) { console.error('[练习房]', e.message); }
+}, 5000).unref();
+
 /* ---------------- 消息处理 ---------------- */
 const wss = new WebSocketServer({
   server,
@@ -371,6 +412,11 @@ setInterval(() => {
     try { ws.ping(); } catch (e) { /* ignore */ }
   }
 }, 25000).unref();
+
+if (process.env.POKER_BOT_ROOM !== '0') {
+  try { ensureBotRoom(); }
+  catch (e) { console.error('[练习房] 启动失败：', e.message); }
+}
 
 server.listen(PORT, HOST, () => {
   const nets = [];
