@@ -94,6 +94,24 @@
  * 这也是侧边席位能骑在桌沿外侧的前提。 */
 .seats { position: absolute; inset: 0; }
 
+/* ---- 结算动画层 ----
+ * 与 #seats 同坐标系（同样是铺满画布的 absolute inset:0），但必须独立成层：
+ * #seats 每次广播都整块重建 innerHTML，动画元素放进去会被下一次状态刷新冲掉。
+ * z-index 要高过座位内的反馈浮层（12）与庄家按钮，筹码才能飞在最上层。 */
+.fx { position: absolute; inset: 0; pointer-events: none; z-index: 20; overflow: hidden; }
+
+/* 飞行中的筹码：与座位上的下注胶囊同一套金色视觉，虚线边转起来能看出在翻滚。
+ * 位移一律用 transform（走合成层，不触发重排），left/top 只设一次起点。 */
+.chip-fly {
+  position: absolute; left: 0; top: 0;
+  width: 20px; height: 20px; margin: -10px 0 0 -10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #fff4d2 0%, #ffd977 45%, var(--gold) 100%);
+  border: 2px dashed rgba(120, 78, 0, .5);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .5);
+  will-change: transform, opacity;
+}
+
 /* ==================== 座位卡 ====================
  * 尺寸全是固定像素：它们是逻辑画布坐标系里的常量，缩放由 .table-canvas 统一承担。
  *
@@ -102,8 +120,8 @@
  * 同一个槽位在牌局不同阶段就会有两种高度，防重叠结论跟着摇摆。
  *
  * 参与防重叠判定的区域是「卡片 + 牌区」= 140 × 101（牌高 67，压卡 22，向桌心探出 45），
- * 与当前是否持牌无关。牌朝向由 .flip 决定（上半部朝下、下半部朝上），
- * 所以碰撞盒也随之翻转。
+ * 与当前是否持牌无关。牌统一在卡片上方（见 .hole 一节），
+ * 碰撞盒因此不再随座位方位翻转。
  *
  * --hole-peek 为什么是 22（不是更小的 10~14）：
  * 侧边同侧上下两席的槽位 y 差 160（竖直直边 220~380 的两端），两张卡各占 56 的一半，
@@ -138,8 +156,9 @@
 .seat.out { opacity: .45; }
 
 /* ---- 空槽位：占位形态 ----
- * 虚线低对比度边框 + 一个「空位」字样，不含任何玩家信息，也不接收指针事件。
- * 入座仍在大厅完成，牌桌页对座位是只读的。 */
+ * 虚线低对比度边框 + 一个「空位」字样，不含任何玩家信息。
+ * 默认不接收指针事件：已入座或账号没钱时它就是纯占位，点了也不该有反应。
+ * .can-sit（未入座且有余额）才放开指针 —— 在牌桌上点空位即可落座，不必回大厅。 */
 .seat.empty {
   background: rgba(255, 255, 255, .03);
   border: 1px dashed rgba(255, 255, 255, .16);
@@ -150,38 +169,62 @@
   display: flex; align-items: center;
   font-size: 12px; color: rgba(255, 255, 255, .28); letter-spacing: 2px;
 }
+.seat.empty.can-sit { pointer-events: auto; cursor: pointer; }
+.seat.empty.can-sit:hover {
+  background: rgba(240, 180, 41, .1);
+  border-color: var(--gold);
+}
+.sit-tag {
+  display: none; align-items: center;
+  font-size: 12px; font-weight: 700; color: var(--gold); letter-spacing: 1px;
+}
+.seat.empty.can-sit:hover .empty-tag { display: none; }
+.seat.empty.can-sit:hover .sit-tag { display: flex; }
+/* 触屏没有 hover，可坐的空位直接把「＋坐下」常显出来，否则玩家看不出能点 */
+@media (hover: none) {
+  .seat.empty.can-sit .empty-tag { display: none; }
+  .seat.empty.can-sit .sit-tag { display: flex; }
+}
 
 /* ---- 底牌：卡片外侧的浮层 ----
  * 只压住卡片顶部 --hole-peek 那一小截，像从卡片后面抽出来的一角。
  * absolute 因此不撑高卡片；两张牌叠压横排。
- * 下半部的槽位牌朝上，上半部（.flip）朝下 —— 都朝着桌心那一侧，
- * 这样牌不会顶出画布，也不会盖住桌沿外面的空白。
  *
- * 水平方向**靠左偏置**而不是居中：牌只挡住头像那一侧（头像是圆形色块，被挡一点无妨），
- * 卡片右侧的昵称与筹码不被牌的白底衬到。
+ * **所有座位的牌一律在卡片上方**（牌在上、信息栏在下），不随座位方位翻边：
+ * 以前上半部的槽位会把牌翻到卡片下方（.flip），同一张桌上于是出现两套结构 ——
+ * 有的座位牌在上、有的在下，看着不像同一局。统一成一套之后，顶边两席的牌会
+ * 伸到桌沿外侧一点，但仍在画布内（实测牌顶离画布顶还有 20px）。
+ *
+ * 水平方向**居中**：与卡片内的 .info（头像/昵称/筹码）对齐，牌就落在信息栏的正上方。
+ * （早前是 left:6px 靠左偏置 —— 那时牌面是白底，怕白底衬到右侧的昵称；
+ *   现在牌面换成饱和色块，这个问题不存在了。）
  *
  * 层级：牌必须压在卡片**内容**之下，否则会盖住昵称与筹码（改造中真实踩到过）。
  * z-index 不能用 -1（会沉到画布背景层，连桌面都盖不过），
  * 所以牌取 1、卡片内容 .info 取 3，卡片本身是 2。 */
 .hole {
-  position: absolute; left: 6px; bottom: calc(100% - var(--hole-peek));
-  display: flex; gap: 0;
+  position: absolute; left: 0; right: 0; bottom: calc(100% - var(--hole-peek));
+  display: flex; gap: 0; justify-content: center;
   pointer-events: none; z-index: 1;
 }
-.seat.flip .hole {
-  bottom: auto; top: calc(100% - var(--hole-peek));
-}
-/* 两张牌**叠压** 14px：像捏在手里的一副手牌，而不是摊开的两张卡。
- * 总宽从 100 收到 82，横向占用少了 18。
+
+/* 两张牌**叠压** 8px：像捏在手里的一副手牌，而不是摊开的两张卡。
  *
- * 牌面改成「左上角索引 + 中央大花色」后，叠压对读数几乎无损 ——
- * 索引就在露出的那一角，实测下层点数距上层牌左沿仍有 20px 余量
- * （居中排版的旧牌面只有 0.8px，那时必须让下层内容左移避让）。
- * 真牌把索引放角上就是这个道理。
- *
- * 也没有加旋转做扇形：牌 48×67 旋 6° 纵向就会多出约 4.6px，
- * 而侧边两席的余量只有 14px，一转就跌破 10px 安全线。 */
-.hole .card + .card { margin-left: -14px; }
+ * 为什么是 8px：牌面回到「点数居中」之后（见牌面一节），下层牌的居中数字会伸进
+ * 被压区里。最宽的是 **Q** —— 31px 无衬线黑体下宽 25.7px，右边缘到 36.9px；
+ * 叠压 14px 时上层牌左沿压掉它 2.9px，10px 时只剩 1.1px。
+ * 1.1px 太临界：不同平台的系统字体（Helvetica / Arial / DejaVu）字宽能差一成，
+ * 换台机器就可能压成负数。收到 8px 后余量 3.1px，留出了字体差异的余度。
+ * （真牌把索引放角上就是为了避开这件事；这里刻意选「居中版式 + 少压一点」。） */
+.hole .card + .card { margin-left: -8px; }
+
+/* 两张牌**一张朝左、一张朝右**（±6°），捏开成一个小扇形，而不是并排两张卡。
+ * 轴心放在牌底（贴着卡片的那一侧），两张在根部靠拢、外缘张开 —— 像从同一点抽出来的。
+ * 角度再大点数读着费劲，再小又看不出扇形。
+ * transform 不参与布局，所以上面那条叠压间距不受影响。 */
+.hole .card { transform-origin: 50% 100%; }
+.hole .card:first-child { transform: rotate(-6deg); }
+.hole .card + .card { transform: rotate(6deg); }
 /* 注：这里曾有一条「把点数和花色左移 7px 避让」的规则，以及一条给被压住的牌
  * 关掉右下角暗纹的规则。牌面改成「左上角索引 + 中央大花色」后前者不再需要
  * （索引本来就在露出的那一角，叠压余量从 11.8px 涨到 20.2px）；花色改用 SVG、
@@ -196,14 +239,13 @@
  * 居中时占 13~43，昵称文字占 21~35 —— 都会伸进牌区，昵称顶部会被牌面衬着，
  * 白牌上的白字对比度很差（z-index 保证画在上面，所以是观感问题不是可读性问题）。
  * 用 padding 把内容推到牌区之外，剩下 34px 刚好放下 30px 的头像。
- * 牌在哪一侧由 .flip 决定，padding 也跟着换边。 */
+ * 牌统一在卡片上方，所以让位的 padding 也统一在上边 —— 不再有「上半部让下边」的变体。 */
 .info {
   position: relative; z-index: 3;
   display: flex; align-items: center; justify-content: center; gap: 5px;
   width: 100%; height: 100%; min-width: 0; overflow: hidden;
   padding-top: var(--hole-peek);
 }
-.seat.flip .info { padding-top: 0; padding-bottom: var(--hole-peek); }
 /* 空位没有牌，不需要让位，居中即可 */
 .seat.empty .info { padding: 0; }
 
@@ -225,7 +267,8 @@
   font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
   flex-shrink: 0;
 }
-/* 下注额：下半部的槽位挂在右下，上半部（.flip）翻到右上 —— 都朝着底池那一侧。
+/* 下注额：一律挂在卡片右下 —— 牌统一移到卡片上方之后，右下角是空着的，
+   不再需要「上半部翻到右上」那一套变体。
  * 做成醒目的金色筹码胶囊（前缀一枚 ● 像一叠筹码），比原来的暗底小字明显得多，
  * 一眼能看出「谁下了多少」。全下时转成红色高亮。 */
 .bet {
@@ -246,7 +289,7 @@
   background: linear-gradient(180deg, #ff8a82, var(--red));
   color: #2b0705;
 }
-.seat.flip .bet { top: -10px; bottom: auto; }
+
 
 /* ---- 庄家按钮（Dealer Button）----
  * 全桌公开信息，所有座位都要看得见（所以没放进对手会被隐藏的 .sub）。
@@ -296,14 +339,14 @@
 
 /* 「行动中 / 上一步动作」贴在卡片下方左侧：不参与布局（否则座位会随状态变高），
  * 也不和右下角的下注额抢位置（max-width 92 + 左对齐，够不到 .bet 的左边界）。
- * 上半部（.flip）的槽位牌朝下、占了卡片下方，这行小字必须跟着翻到卡片上方。 */
+ * 牌统一在卡片上方，所以这行小字统一贴卡片下方 —— 不再按座位方位翻边。 */
 .last, .thinking {
   position: absolute; top: calc(100% + 2px); left: 4px;
   max-width: 92px; font-size: 12px;
   color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   pointer-events: none;
 }
-.seat.flip .last, .seat.flip .thinking { top: auto; bottom: calc(100% + 2px); }
+
 .thinking { color: var(--gold); }
 
 /* ---- 当前行动者的座位倒计时 ----
@@ -323,9 +366,8 @@
  * absolute + pointer-events:none：完全脱离布局流。
  * 它在逻辑画布内，所以随画布一起等比缩放，与座位的相对大小/位置恒定。
  *
- * 位置在座位卡**牌的反面** —— 牌占哪一侧，反馈就去另一侧：
- * 下半部槽位牌朝上（卡上方），反馈在卡下方；上半部（.flip）槽位牌朝下，
- * 反馈翻到卡上方。废除按人数降级后反馈永远是完整文字、没有「退化成圆点」的退路，
+ * 位置固定在座位卡**下方**：牌统一在卡上方，反馈放另一侧，两者永远不会重叠。
+ * 废除按人数降级后反馈永远是完整文字、没有「退化成圆点」的退路，
  * 一旦与底牌重叠就是长期遮挡（改造中真实踩到过：只写死了卡下方，
  * 结果上半部四席的牌和反馈叠在一起）。
  * 纵向再让开一截（20px），避开同样贴在卡外侧的「行动中 / 上一步动作」那行小字。 */
@@ -343,7 +385,7 @@
   pointer-events: none; z-index: 12;
   animation: af-in .18s ease-out;
 }
-.seat.flip .act-flash { top: auto; bottom: calc(100% + 20px); }
+
 .act-flash.gone { animation: af-out .4s ease-in forwards; }
 .act-flash .to-tag {
   font-style: normal; font-size: 10px; font-weight: 800;
@@ -364,128 +406,128 @@
 
 /* ==================== 牌面 ====================
  * 三种尺寸共用同一套视觉：.card（公共牌 46×64）、.card.small（座位底牌 48×67）、
- * .card.mini（结算浮层 22×31）。宽高是逻辑画布上的常量，改动必须重跑 layout-test；
+ * .card.mini（迷你 22×31）。宽高是逻辑画布上的常量，改动必须重跑 layout-test；
  * 这一节只管「长什么样」，一个像素的尺寸都不碰。
  *
- * 结构照真牌来（见 common.js 的 cardHTML）：
+ * 版式照参考图（见 common.js 的 cardHTML）：
  *
  *   ┌─────────┐
- *   │ A       │   .idx  = 左上角索引：点数在上、小花色 SVG 在下，竖排左对齐
- *   │ ♠       │
- *   │    ♠    │   .pip  = 中央大花色 SVG，牌的主视觉
- *   │         │
+ *   │    ♠    │   .pip  = 同色系更暗的花色剪影，靠右，可被右边缘裁掉一角
+ *   │    A    │   .rank = 白色点数，整块居中、字号拉满
  *   └─────────┘
  *
- * 索引放角上不是为了好看：叠压时中间那团正好落在被压区，而角上的索引
- * 无论叠多少张都能从露出的一角读到 —— 真牌把索引放角上就是这个道理。
+ * 三点缺一不可，少一个就不像：
+ *   1. 底色是**一块饱和色**（四门各一色），不是白纸 —— 「哪一门花色」由它直接给出；
+ *   2. 花色是**阴影**不是白图形：同色系再暗一档，只当打底质感，不抢点数；
+ *   3. 点数**居中放大**，是整张牌唯一的信息。
+ * 代价是失去真扑克的「红/黑两色」语义，这是刻意的取舍。
  *
- * 清晰度靠三件事：
- *   1. 点数与花色**分离**，各占一处，不再挤在一起互相干扰
- *   2. 中央大花色 SVG 给到牌宽 ~58%，远看一眼辨色、辨形
- *   3. 点数用 Palatino 系衬线体 + 极淡高光，边缘锐利不发虚
+ * 居中带来的已知代价：底牌两张叠压 14px（见 .hole），下层牌靠右的一小圈会被上层牌
+ * 盖住。居中后的点数正好卡在「刚好不出界」的位置上，tools/visual-check.js 有一条
+ * 断言守这个 —— 判定已从「留 4px 余量」改成「不越界」（余量 1~2px 是正常的）。
  *
- * 花色一律用内联 SVG（common.js 的 SUIT_SVG），不用 Unicode ♠♥♦♣：
- * 字符花色的字形各平台不一、还可能被渲染成彩色 emoji，SVG 才能保证每台设备一个样。
- * 除此之外不引任何外部字体：牌桌必须能离线渲染，字体栈全部走系统。 */
+ * 花色图形既不用 Unicode ♠♥♦♣，也不用内联 SVG —— 直接用雪碧图里那一套（取自参考图）：
+ * 各设备完全一致，也不会像字符花色那样被系统渲染成彩色 emoji。
+ * 除此之外不引任何外部字体：牌桌必须能离线渲染，点数走系统字体栈。 */
 .card {
   position: relative;
   width: 46px; height: 64px;
   border-radius: 6px;
-  overflow: hidden;                      /* 裁掉超出圆角的内容（牌背菱格 / 花色边缘） */
-  /* 象牙白而不是纯白：纯白在墨绿桌面上发飘，压一点暖调才像纸。
-     斜向高光模拟牌面受光，让平面有一点起伏。 */
-  background:
-    linear-gradient(148deg, rgba(255, 255, 255, .82) 0%, rgba(255, 255, 255, 0) 42%),
-    radial-gradient(120% 90% at 24% 8%, #ffffff 0%, #fcfaf5 44%, #eee9dc 100%);
+  overflow: hidden;                      /* 裁掉超出圆角的内容（牌背菱格 / 剪影边缘） */
+  /* 牌面是雪碧图：13 列（A K Q J T 9…2）× 4 行（♠♥♦♣），一格正好铺满一张牌。
+     图由参考图重排而来（public/img/cards.png），行由 [data-suit]、列由 [data-rank] 选。
+     用雪碧图而不是裁 52 张：一个文件、一次请求，缩放时各张之间也不会错位。 */
+  background-color: #3a3f48;             /* 图没加载出来时的兜底，不至于变成透明牌 */
+  background-image: url(/img/cards.png);
+  background-size: 1300% 400%;
+  background-repeat: no-repeat;
+  background-position: var(--col, 0%) var(--row, 0%);
   box-shadow:
     0 1px 1px rgba(0, 0, 0, .32),                /* 贴地硬边 */
     0 5px 12px rgba(0, 0, 0, .34),               /* 柔和扩散 */
-    inset 0 0 0 1px rgba(255, 255, 255, .92),    /* 白芯：切边的高光 */
-    inset 0 0 0 2px rgba(18, 24, 32, .11);       /* 压印线：勾出牌的轮廓 */
+    inset 0 0 0 1px rgba(255, 255, 255, .06);    /* 极淡白边：在深色块上勾出轮廓 */
   flex-shrink: 0; user-select: none;
 }
+/* 行 = 花色（图自上而下 ♠ ♥ ♦ ♣） */
+.card[data-suit="s"] { --row: 0%; }
+.card[data-suit="h"] { --row: 33.3333%; }
+.card[data-suit="d"] { --row: 66.6667%; }
+.card[data-suit="c"] { --row: 100%; }
+/* 列 = 点数（图自左而右 A K Q J T 9 8 7 6 5 4 3 2）。
+   background-position 的百分比是「图片的该比例点」与「元素的该比例点」对齐，
+   所以 n 列要写 c/(n-1)×100%，不是 c/n —— 写成 c/n 会整体偏半格。 */
+.card[data-rank="14"] { --col: 0%; }
+.card[data-rank="13"] { --col: 8.33333%; }
+.card[data-rank="12"] { --col: 16.66667%; }
+.card[data-rank="11"] { --col: 25%; }
+.card[data-rank="10"] { --col: 33.33333%; }
+.card[data-rank="9"]  { --col: 41.66667%; }
+.card[data-rank="8"]  { --col: 50%; }
+.card[data-rank="7"]  { --col: 58.33333%; }
+.card[data-rank="6"]  { --col: 66.66667%; }
+.card[data-rank="5"]  { --col: 75%; }
+.card[data-rank="4"]  { --col: 83.33333%; }
+.card[data-rank="3"]  { --col: 91.66667%; }
+.card[data-rank="2"]  { --col: 100%; }
 
-/* ---- 中央大花色：牌的主视觉 ----
- * 「远看能不能一眼认出花色」的关键，所以给到牌宽的 ~58%。改用 SVG（见 common.js
- * 的 SUIT_SVG）而不是字体字符：字形由我们自定义、各设备完全一致，
- * fill=currentColor 让它跟随红/黑牌色，按牌尺寸等比缩放，不依赖任何系统字体。
- * 稍微下移（top 57%）而不是正中：上方给左上角索引让出呼吸空间。
- *
- * 旧版还有一枚右下角旋 180° 的淡花色「暗纹」（字体渲染）—— 已随字体花色一并去掉：
- * SVG 大花色本身就是干净利落的主视觉，补白暗纹反而显脏。 */
-.card .pip {
-  position: absolute; left: 50%; top: 57%;
-  transform: translate(-50%, -50%);
-  width: 58%; height: auto;
-  fill: currentColor;
-  /* 底部一条极淡白高光，模拟花色印在纸面上的微微凸起，不发虚 */
-  filter: drop-shadow(0 .5px 0 rgba(255, 255, 255, .45));
-  pointer-events: none;
-}
-
-/* ---- 左上角索引：点数 + 小花色竖排 ----
- * 绝对定位而不是 flex 布局：牌面现在是「一块画布 + 几个绝对定位的角标」，
- * 没有任何需要参与流式布局的内容，这样三种尺寸各自调坐标最省事。
- * top 不能贴到 2px 那么高 —— 牌有 2px 的 inset 压印边，点数会像顶在边框上。 */
-.card .idx {
-  position: absolute; left: 5px; top: 4px;
-  display: flex; flex-direction: column; align-items: center;
-  line-height: 1; pointer-events: none;
-  z-index: 1;                            /* 压在中央大花色之上 */
-}
+/* ---- 点数：整块居中、字号拉满 ----
+ * 绝对定位居中：不参与流式布局，三种尺寸各自调字号即可。
+ * 字体是**粗无衬线**（Helvetica / Arial / 系统 UI 栈，字重 900），
+ * 对齐参考图 —— 参考图用的是几何无衬线黑体，不是衬线。
+ * （早前这里用过 Palatino 衬线，那是「像真扑克牌」的取向；参考图不是那个取向。） */
 .card .rank {
-  /* 衬线体是「像牌不像 UI 控件」的关键。字体栈从 Georgia 升级到 Palatino 系
-     （Palatino Linotype / Book Antiqua / Palatino）：字形更修长优雅、衬线更考究，
-     是最接近专业扑克牌点数的系统字体；逐级回退到 Georgia / Times / 宋体保证各平台都有得用。
-     字号按「实显能读」定而不是按牌宽比例缩：公共牌逻辑宽 46px，桌面视口下实显仅 41px，
-     索引给小了远看就是一团糊。
-     花色移到 SVG、中央花色下移后，点数不再压在花色上，于是把旧的厚重白色光晕
-     换成一条极淡的底部高光 —— 数字边缘更锐利干净，不再发虚。 */
-  font-family: "Palatino Linotype", "Book Antiqua", Palatino, "Iowan Old Style",
-               Georgia, "Times New Roman", "Songti SC", serif;
-  font-weight: 800; font-size: 18px; line-height: .95;
-  letter-spacing: -.01em;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, .5);
+  /* 用 left/top 50% + translate 居中，而不是 inset:0 + flex：
+     这样**盒子本身就贴合文字**，getBoundingClientRect 量到的才是数字的真实范围。
+     tools/visual-check.js 的叠压断言正是拿它去比「有没有被上层牌压到」——
+     盒子若铺满整张牌，那条断言就永远量到牌边、彻底失去意义。 */
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-family: "Helvetica Neue", Helvetica, Arial, "Segoe UI", system-ui,
+               "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-weight: 900; font-size: 30px; line-height: 1;
+  letter-spacing: -.02em;
+  color: #fff;
+  /* 白字压在饱和色上：用暗投影把字从底色上「抬起来」。
+     不要用白色光晕 —— 白底时代那套在饱和色上等于把字糊掉。 */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+  pointer-events: none;
+  z-index: 1;                            /* 压在剪影之上 */
 }
-/* 左上角小花色：与中央大花色同一枚 SVG，只是尺寸小。fill 跟随牌色。 */
-.card .suit {
-  display: block; width: 11px; height: 11px; margin-top: 2px;
-  fill: currentColor;
-}
-/* 「10」比其他点数宽一位，索引整体收窄一点，免得顶到中央花色 */
-.card .rank.two-char { font-size: 15px; letter-spacing: -.06em; }
+/* 「10」比其他点数宽一位：收窄字号，免得顶出牌面 */
+.card .rank.two-char { font-size: 23px; letter-spacing: -.05em; }
 
-.card.red { color: #c8102e; }             /* 经典扑克红，比原来的 #d7263d 沉一档 */
-.card.black { color: #12161c; }
+/* 底牌（48×67）比公共牌略大，字号跟着提一档 */
+.card.small .rank { font-size: 31px; }
+.card.small .rank.two-char { font-size: 24px; }
+
+/* 点数与花色一律纯白。底色已经承担了「哪一门花色」的全部信息，
+   再拿红/黑分色只会和底色的红/蓝/绿打架。
+   两个类都留着（cardHTML 仍在输出 red/black），只是取值相同 ——
+   不动 JS 结构，就不会连累叠压断言（它按 .rank 找位置）。 */
+.card.red, .card.black { color: #fff; }
 
 /* ---- 牌背 ----
- * 深墨蓝 + 金菱格 + 中心徽记，和墨绿桌布、金线桌沿是同一套配色语言。
+ * 红酒色底 + 白边 + 白色黑桃徽记。
+ * 与牌面同为「饱和色块」的语言，但只走红这一系：翻开前后一眼能分清，
+ * 又不会和牌面的四色（灰/红/蓝/绿）混在一起。
  *
- * inset 阴影**先写的画在上层**，所以「外白边 + 内金线」要写成：
- * 先 2px 白（盖住最外两像素），再 3px 金（只露出第 3 像素那一圈）。
- * 顺序颠倒的话金线会被白边整个吃掉。
+ * 白边用 inset 阴影而不是 border：border 会压缩内容区、把纹理挤变形，
+ * inset 阴影完全不影响布局。2px 是「看得清又不吃掉太多牌面」的尺寸。
+ * 纹理压到 .07 透明度：近看有一点织物感，远看仍是干净的酒红块。
  *
- * 不用 border：虽然全局是 border-box、不会撑大盒子，但 border 会压缩内容区、
- * 把菱格图案挤变形，inset 阴影则完全不影响布局。 */
+ * 注：这里是 background 简写，会顺带把 .card 上的雪碧图重置掉 —— 牌背不用雪碧图。 */
 .card.back {
   background:
     radial-gradient(circle at 50% 50%,
-      rgba(224, 196, 110, .28) 0 11%, rgba(224, 196, 110, 0) 12%),
-    repeating-linear-gradient(45deg, rgba(224, 196, 110, .17) 0 1px, transparent 1px 7px),
-    repeating-linear-gradient(-45deg, rgba(224, 196, 110, .17) 0 1px, transparent 1px 7px),
-    linear-gradient(160deg, #1c3c66 0%, #132a4c 46%, #0a1a30 100%);
+      rgba(255, 255, 255, .1) 0 11%, rgba(255, 255, 255, 0) 12%),
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .07) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, .07) 0 1px, transparent 1px 7px),
+    linear-gradient(160deg, #8a1c2e 0%, #6b1223 46%, #460a17 100%);
   box-shadow:
     0 1px 1px rgba(0, 0, 0, .32),
     0 5px 12px rgba(0, 0, 0, .34),
-    inset 0 0 0 2px rgba(250, 249, 244, .93),    /* 白芯边（在外） */
-    inset 0 0 0 3px rgba(224, 196, 110, .5);     /* 金线（只露内侧 1px） */
-}
-/* 中心徽记：牌背放一枚居中的金色黑桃 SVG（common.js 注入 .pip.back-pip），
-   与牌面用同一套花色字形。覆盖 .card .pip 的默认下移与红/黑填色 —— 徽记要正中 + 金色。 */
-.card.back .pip {
-  top: 50%; width: 40%;
-  fill: rgba(224, 196, 110, .62);
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .5));
+    inset 0 0 0 3px rgba(255, 255, 255, .92);    /* 白边 */
 }
 
 /* 座位里的底牌：所有人一个尺寸。本人明牌与对手牌背用的都是这一条规则，
@@ -495,24 +537,16 @@
  * 索引字号要给足，不能只按比例缩。 */
 .card.small { width: 48px; height: 67px; border-radius: 5px; }
 
-/* 结算浮层里的迷你牌：22×31 放不下「索引 + 中央花色」两套东西，
- * 硬塞会糊成一团。这个尺寸退回「点数 + 花色居中并排」，拼的是干净不是细节密度。 */
+/* 迷你牌（22×31）：同一套语言的缩小版 —— 底色、剪影、居中点数都保留，
+ * 只把字号收到能读的下限，并去掉投影（这么小的字再加投影只会糊）。 */
 .card.mini { width: 22px; height: 31px; border-radius: 4px; }
-.card.mini .pip { display: none; }        /* 迷你牌太小放不下中央大花色，只留 idx 行 */
-.card.mini .idx {
-  position: static;
-  flex-direction: row; align-items: center; gap: 1px;
-  width: 100%; height: 100%; justify-content: center;
-}
-.card.mini .rank { font-size: 10px; text-shadow: none; }
-.card.mini .rank.two-char { font-size: 9px; }
-.card.mini .suit { width: 8px; height: 8px; margin-top: 0; }
+.card.mini .rank { font-size: 15px; letter-spacing: -.02em; text-shadow: none; }
+.card.mini .rank.two-char { font-size: 11px; }
 .card.mini.back {
-  background: linear-gradient(160deg, #1c3c66, #0a1a30);
+  background: linear-gradient(160deg, #8a1c2e, #460a17);
   box-shadow:
     0 1px 1px rgba(0, 0, 0, .32),
-    inset 0 0 0 1px rgba(250, 249, 244, .9),
-    inset 0 0 0 2px rgba(224, 196, 110, .45);
+    inset 0 0 0 2px rgba(255, 255, 255, .9);   /* 迷你牌小，白边比大牌薄一档 */
 }
 
 /* ==================== 操作条 ==================== */

@@ -326,8 +326,7 @@ button.mini {
   position: absolute; top: -10px; right: -6px; left: auto; transform: none;
   flex-wrap: nowrap; max-width: 130px; pointer-events: none; z-index: 9;
 }
-/* 上半部的槽位牌在下、徽章翻到卡片下方，同样避开牌区 */
-.seat.flip .sub { top: auto; bottom: -10px; }
+/* 牌统一移到卡片上方之后，徽章也就固定在右上角 —— 不再有「上半部翻到下方」的变体 */
 
 /* 自己的座位：加金色高亮，方便一眼定位。
  * 注意：这里只能改颜色，不能改尺寸 —— 底牌大小对所有人必须一致。 */
@@ -387,11 +386,10 @@ button, .room-item, .lseat, .seat, #raise-slider {
   }
   .side.open .panel { flex: 1; margin-bottom: 0; }
 
-  /* 结算浮层里的迷你牌：这个浮层是 fixed 定位、在画布之外，可以跟着屏幕缩 */
+  /* 迷你牌：它不在画布内，可以跟着屏幕缩 */
   .card.mini { width: 20px; height: 28px; }
-  .card.mini .rank { font-size: 9px; }
-  .card.mini .rank.two-char { font-size: 8px; }
-  .card.mini .suit { font-size: 8px; }
+  .card.mini .rank { font-size: 14px; }
+  .card.mini .rank.two-char { font-size: 10px; }
 
   /* ---- 操作条移到牌桌右侧 ----
    * 横屏手机上高度是唯一的稀缺资源（画布受限于高度时，省下 1px 高就等于牌桌大 2px 宽）。

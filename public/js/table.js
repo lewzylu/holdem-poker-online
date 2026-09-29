@@ -9,6 +9,7 @@
     fit: $('#table-fit'), canvas: $('#table-canvas'),
     phase: $('#phase'), pot: $('#pot b'), blind: $('#blind'),
     board: $('#board'), seats: $('#seats'), waiting: $('#waiting'),
+    fx: $('#fx'), btnSound: $('#btn-sound'),
     prompt: $('#prompt'),
     btnFold: $('#btn-fold'), btnCall: $('#btn-call'), btnRaise: $('#btn-raise'),
     btnAllin: $('#btn-allin'), slider: $('#raise-slider'), quick: $('#quick'),
@@ -152,6 +153,7 @@
 
   /* ---------- 渲染 ---------- */
   let firstRender = true;
+  let prevSeat = null;      // 上一次渲染时我的座位号（null = 尚未渲染过），用于判定「刚入座」
   function render() {
     if (!state) return;
     const room = state.room, t = state.table, you = t.you;
@@ -168,9 +170,15 @@
     el.waiting.hidden = room.status === 'playing';
     el.btnStand.disabled = you.seat < 0;
     el.btnRebuy.disabled = you.seat < 0;
+    // 牌局进行中落座要等下一手才发牌，不提示的话玩家会以为没坐上
+    if (prevSeat !== null && prevSeat < 0 && you.seat >= 0 && room.status === 'playing') {
+      UI.toast('已入座，从下一手开始参与');
+    }
+    prevSeat = you.seat;
 
     renderBoard();
     renderSeats();
+    maybeAward();          // 必须在 renderSeats 之后：动画要按座位 DOM 的落点算坐标
     renderScore();
     renderLog(state.logs || []);
     renderChat(state.chat || []);
@@ -317,17 +325,31 @@
       if (slot >= 0 && all[seatIdx] && all[seatIdx].name) bySlot[slot] = all[seatIdx];
     });
 
+    // 未入座时空位可点击直接坐下（买入额取「房间买入」与「账号余额」的较小者，
+    // 服务端还会再夹一次上下限，余额低于最低买入时会自动按全部身家上桌）
+    const you = t.you || {};
+    const seated = you.seat >= 0;
+    const acc = you.account || 0;
+    const buyAmt = Math.max(1, Math.min(state.room.buyIn, acc));
+
     let html = '';
     for (let k = 0; k < SLOT_COUNT; k++) {
       const s = bySlot[k];
       const p = seatPos(k);
       const posStyle = 'style="left:' + p.left + '%;top:' + p.top + '%"';
 
-      // ---- 空槽位：占位形态，不含任何玩家信息，也不绑定交互 ----
+      // ---- 空槽位：占位形态，不含任何玩家信息 ----
       if (!s) {
-        html += '<div class="seat empty' + (p.flip ? ' flip' : '') + '" ' +
-          'data-slot="' + k + '" ' + posStyle + '>' +
-          '<div class="info"><span class="empty-tag">空位</span></div>' +
+        // 已入座或账号没钱时保持只读，避免误触；其余情况可点击坐下。
+        // 槽位号 ≠ 服务端座位号（槽位是前端按「本人居中」重排的虚拟位置），
+        // 所以落座由前端挑一个真实空位号，坐下后本人会自动落到槽位 0（底边正中）。
+        const canSit = !seated && acc > 0;
+        html += '<div class="seat empty' + (p.flip ? ' flip' : '') + (canSit ? ' can-sit' : '') + '" ' +
+          'data-slot="' + k + '"' + (canSit ? ' title="点击坐下 · 买入 ' + UI.fmt(buyAmt) + '"' : '') + ' ' + posStyle + '>' +
+          '<div class="info">' +
+            '<span class="empty-tag">空位</span>' +
+            (canSit ? '<span class="sit-tag">＋坐下</span>' : '') +
+          '</div>' +
           '</div>';
         continue;
       }
@@ -409,6 +431,135 @@
     el.seats.innerHTML = html;
 
     if (flashes.size || (t.actSeat >= 0 && t.actDeadline)) startSeatTick();
+  }
+
+  /* ---------- 结算：底池筹码飞向赢家 + 音效 ---------- */
+  let lastAwardSeq = -1;
+
+  function maybeAward() {
+    const r = state.result;
+    if (!r || !r.seats) return;
+    // 用服务端给的结果序号判定新旧：handCount 在重开一局后从 1 重新数，会撞车
+    if (r.seq === lastAwardSeq) return;
+    lastAwardSeq = r.seq;
+    awardChips(r);
+  }
+
+  function awardChips(r) {
+    const fx = el.fx;
+    if (!fx) return;
+    const winners = (r.seats || []).filter(s => s.won > 0);
+    if (!winners.length) return;
+
+    // 起点是桌面正中（底池所在），终点是各赢家座位中心。
+    // 坐标取 offsetLeft/offsetTop：那是不含 --tscale 的布局像素，
+    // 与 .fx 的 clientWidth/Height 同一坐标系，不必再换算缩放。
+    const ox = fx.clientWidth / 2, oy = fx.clientHeight / 2;
+    let flew = 0;
+    winners.forEach(w => {
+      const node = el.seats.querySelector('.seat[data-seat="' + w.index + '"]');
+      if (!node) return;                    // 赢家已离座（座位不再渲染）就没得飞
+      const tx = node.offsetLeft + node.offsetWidth / 2;
+      const ty = node.offsetTop + node.offsetHeight / 2;
+      // 赢得越多推过去的筹码越多
+      const n = Math.max(3, Math.min(8, 3 + Math.floor(w.won / 250)));
+      for (let i = 0; i < n; i++) flyChip(ox, oy, tx, ty, i);
+      flew += n;
+    });
+    if (flew) playAward(Math.min(flew, 10));
+  }
+
+  /** 一枚筹码的飞行。抛物线靠中间关键帧抬高 30px 做出来；起点/终点各加随机散布 ——
+   *  整齐划一地平移不像筹码，像进度条。 */
+  function flyChip(ox, oy, tx, ty, i) {
+    const c = document.createElement('div');
+    c.className = 'chip-fly';
+    const sx = ox + (Math.random() - 0.5) * 46;
+    const sy = oy + (Math.random() - 0.5) * 24;
+    const ex = tx + (Math.random() - 0.5) * 34;
+    const ey = ty + (Math.random() - 0.5) * 16;
+    c.style.left = sx + 'px';
+    c.style.top = sy + 'px';
+    el.fx.appendChild(c);
+    const dx = ex - sx, dy = ey - sy;
+    const dur = 620 + Math.random() * 220;
+    const delay = i * 65 + Math.random() * 40;
+    const drop = () => c.remove();
+    // 没有 Web Animations（老浏览器 / jsdom）就不硬撑，直接把元素撤掉
+    if (!c.animate) { setTimeout(drop, delay + dur); return; }
+    const a = c.animate([
+      { transform: 'translate(0px,0px) scale(.55) rotate(0deg)', opacity: 0 },
+      { transform: 'translate(' + (dx * .2) + 'px,' + (dy * .2 - 30) + 'px) scale(1.08) rotate(140deg)', opacity: 1, offset: .2 },
+      { transform: 'translate(' + (dx * .65) + 'px,' + (dy * .65 - 34) + 'px) scale(1) rotate(280deg)', opacity: 1, offset: .62 },
+      { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.8) rotate(400deg)', opacity: 1 }
+    ], { duration: dur, delay, easing: 'cubic-bezier(.3,.12,.35,1)', fill: 'forwards' });
+    a.onfinish = drop;
+  }
+
+  /* ---------- 音效（Web Audio 现场合成，不引外部音频文件） ----------
+   * 浏览器要求音频上下文在用户手势之后才能发声，所以首次点击/按键时解锁一次。 */
+  const MUTE_KEY = 'poker_mute';
+  let actx = null;
+  let muted = (() => { try { return localStorage.getItem(MUTE_KEY) === '1'; } catch (e) { return false; } })();
+
+  function audio() {
+    if (muted) return null;
+    if (!actx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { actx = new AC(); } catch (e) { return null; }
+    }
+    if (actx.state === 'suspended') actx.resume();
+    return actx;
+  }
+  function unlockAudio() {
+    audio();
+    window.removeEventListener('pointerdown', unlockAudio);
+    window.removeEventListener('keydown', unlockAudio);
+  }
+  window.addEventListener('pointerdown', unlockAudio);
+  window.addEventListener('keydown', unlockAudio);
+
+  /** 一声筹码碰撞：极短的带通噪声（塑料筹码的「嗒」） */
+  function clink(ctx, t0, freq, gain) {
+    const dur = 0.05;
+    const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 1.3;
+    const g = ctx.createGain(); g.gain.value = gain;
+    src.connect(bp); bp.connect(g); g.connect(ctx.destination);
+    src.start(t0);
+  }
+  function tone(ctx, t0, freq, dur, type, gain) {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+
+  /** 一把筹码被推给赢家：n 声错落的碰撞，收尾一声厚实的「落袋」 */
+  function playAward(n) {
+    const ctx = audio();
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.03;
+    for (let i = 0; i < n; i++) {
+      const t = t0 + i * 0.07 + Math.random() * 0.015;
+      clink(ctx, t, 2400 + Math.random() * 1400, 0.13);
+      tone(ctx, t, 1700 + Math.random() * 1000, 0.05, 'triangle', 0.045);
+    }
+    const end = t0 + n * 0.07 + 0.06;
+    tone(ctx, end, 523, 0.2, 'sine', 0.1);
+    tone(ctx, end + 0.08, 784, 0.24, 'sine', 0.08);
+  }
+
+  function syncSoundBtn() {
+    if (el.btnSound) el.btnSound.textContent = muted ? '音效 关' : '音效 开';
   }
 
   function renderScore() {
@@ -569,6 +720,13 @@
     location.href = 'lobby.html';
   };
   el.btnStand.onclick = () => Net.send({ type: 'stand' });
+  el.btnSound.onclick = () => {
+    muted = !muted;
+    try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch (e) { /* 隐私模式不记 */ }
+    syncSoundBtn();
+    if (!muted) { const c = audio(); if (c) tone(c, c.currentTime + 0.02, 880, 0.12, 'sine', 0.07); }
+  };
+  syncSoundBtn();
   el.btnRebuy.onclick = () => {
     const acc = state.table.you.account;
     UI.modal({
@@ -577,6 +735,25 @@
       okText: '补给', onOk: v => Net.send({ type: 'rebuy', amount: v })
     });
   };
+
+  /* ---------- 点击空位坐下 ----------
+   * 牌桌上的槽位是前端按「本人居中」重排后的虚拟位置，与服务端座位号不是一回事，
+   * 所以不能拿槽位号去坐下；真实座位号由前端挑一个没人坐的即可 —— 坐下之后
+   * 本人固定落在槽位 0（底边正中），坐在几号位对观感没有区别。 */
+  el.seats.addEventListener('click', e => {
+    if (e.target.closest('.seat.empty.can-sit')) trySit();
+  });
+
+  function trySit() {
+    if (!state || !state.table) return;
+    const t = state.table;
+    if (t.you.seat >= 0) return UI.toast('你已经在座了');
+    const acc = t.you.account || 0;
+    if (acc <= 0) return UI.toast('账号余额不足', 'err');
+    const free = (t.seats || []).find(s => !s.name);
+    if (!free) return UI.toast('已经没有空位了', 'err');
+    Net.send({ type: 'sit', seat: free.i, amount: Math.max(1, Math.min(state.room.buyIn, acc)) });
+  }
   function sendChat() {
     const t = el.chatText.value.trim();
     if (!t) return;

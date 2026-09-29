@@ -34,6 +34,7 @@
     <span class="chip-badge table-chips" id="me-table">桌上 0</span>
   </div>
   <div class="topbtns">
+    <button id="btn-sound" class="ghost">音效 开</button>
     <button id="btn-panel" class="ghost panel-toggle">记录</button>
     <button id="btn-rebuy" class="ghost">补给</button>
     <button id="btn-stand" class="ghost">站起</button>
@@ -61,6 +62,9 @@
           <!-- 座位在 .felt 之外、直接挂在画布上：槽位坐标就是画布坐标，
                与桌面的位置和边框宽度完全解耦，侧边席位也才能骑在桌沿外侧。 -->
           <div class="seats" id="seats"></div>
+          <!-- 结算动画层：底池筹码飞向赢家。与 #seats 同坐标系（一样铺满画布），
+               但必须独立 —— #seats 每次广播都整块重建 innerHTML，动画放里面会被冲掉。 -->
+          <div class="fx" id="fx" aria-hidden="true"></div>
         </div>
       </div>
     </div>

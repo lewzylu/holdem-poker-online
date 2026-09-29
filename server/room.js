@@ -67,6 +67,10 @@ class Room {
     this.game = null;
     this.pending = null;
     this.lastResult = null;
+    // 结算结果的单调递增序号：前端靠它判定「这是一次新的结算」。
+    // 不能用 handCount 代替 —— 重开一局后手数从 1 重新数，会和上一局的第 1 手撞车，
+    // 前端会误判成「已经播过」而漏掉结算动画。
+    this._resultSeq = 0;
     this.epoch = 0;                      // 第几「局」：用来区分先后两局，防止旧 loop 收尾清掉新局状态
     this._bcQueued = false;              // 广播合并标记
     // 动作序号：前端靠「序号变化」判定这是一次新动作，从而触发动作反馈。
@@ -479,6 +483,7 @@ class Room {
       const es = this.game.seats[i];
       if (es && es.inHand) db.recordHand(s.name, es.won);
     });
+    result.seq = ++this._resultSeq;
     this.lastResult = result;
     this.processLeaves();
     this.broadcast();

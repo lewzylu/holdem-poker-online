@@ -221,8 +221,11 @@ for (const d of DEVICES) {
     ok(overlapped.length === fans.length,
       '两张底牌为叠压排布（' + overlapped.length + '/' + fans.length + ' 个座位，叠压 ' +
       (fans[0].cardGap / g.ts).toFixed(0) + 'px）');
-    const cut = fans.filter(s => s.rankGap !== null && s.rankGap / g.ts < 4);
-    ok(cut.length === 0, '下层牌的点数未被上层牌压掉（最小余量 ' +
+    // 点数改成整块居中之后（见 table.css 的牌面一节），下层牌的点数正好卡在
+    // 「刚好不出界」的位置上：余量只有 1~2px 是正常的，所以判定是「不越界」
+    // 而不是「留 4px」。若哪天字号被调大到数字压到上层牌上，这条会立刻报出来。
+    const cut = fans.filter(s => s.rankGap !== null && s.rankGap / g.ts < 0);
+    ok(cut.length === 0, '下层牌的点数完整露出、未被上层牌压到（最小余量 ' +
       Math.min.apply(null, fans.filter(s => s.rankGap !== null).map(s => s.rankGap / g.ts)).toFixed(1) +
       'px，异常 ' + cut.length + ' 个）');
   }

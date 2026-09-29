@@ -89,11 +89,11 @@ const BOX_H = SEAT_H + HOLE_OUT;  // 碰撞盒高 = 卡片 + 牌超出的部分
 /** 槽位是否属于画布上半部（牌朝下、下注额与徽章翻面），与 table.js 的 seatPos().flip 同源 */
 const isFlip = s => s.y < CANVAS_H / 2;
 
-/** 碰撞盒：卡片 + 牌超出卡片的部分。牌朝桌心，所以上半部的盒子向下扩、下半部向上扩。 */
+/** 碰撞盒：卡片 + 牌超出卡片的部分。
+ *  牌**统一在卡片上方**（见 table.css 的 .hole —— 不再随 .flip 翻边），
+ *  所以所有座位的盒子一律向上扩。 */
 function boxOf(s) {
-  return isFlip(s)
-    ? { x: s.x - SEAT_W / 2, y: s.y - SEAT_H / 2, r: s.x + SEAT_W / 2, b: s.y + SEAT_H / 2 + HOLE_OUT }
-    : { x: s.x - SEAT_W / 2, y: s.y - SEAT_H / 2 - HOLE_OUT, r: s.x + SEAT_W / 2, b: s.y + SEAT_H / 2 };
+  return { x: s.x - SEAT_W / 2, y: s.y - SEAT_H / 2 - HOLE_OUT, r: s.x + SEAT_W / 2, b: s.y + SEAT_H / 2 };
 }
 /** 槽位中心在 .seats（铺满整块画布）里的百分比坐标，与 table.js 的 seatPos() 同一套算法 */
 function pctOf(s) {
@@ -222,15 +222,17 @@ function cssRules() {
   ok(!inMedia, '.card.small 的尺寸没有被任何 @media 断点改写');
   const hits = all.match(/\.card\.small\s*\{[^}]*(?:width|height)\s*:/g) || [];
   ok(hits.length === 1, '.card.small 的尺寸只有一处定义（实际 ' + hits.length + ' 处）');
-  // 牌与反馈必须分处卡片两侧，且随 .flip 一起翻转
+  // 牌统一在卡片上方，反馈与状态文字统一在下方 —— 两者分处两侧，不可能重叠。
+  // 旧约定是「随 .flip 翻到上方」：牌统一到上方之后，那套翻边变体已全部删除，
+  // 这里改成断言「不再有翻边」，免得以后又被加回来（那会让上半部四席的牌和反馈叠住）。
   ok(/^\.act-flash \{[^}]*top:\s*calc\(100%/m.test(T),
     '动作反馈定位在座位卡下方（top: calc(100% …)）');
-  ok(/^\.seat\.flip \.act-flash \{[^}]*bottom:\s*calc\(100%/m.test(T),
-    '上半部槽位的反馈翻到卡片上方（牌朝下，两者不能同侧）');
-  ok(/^\.seat\.flip \.last, \.seat\.flip \.thinking \{[^}]*bottom:\s*calc\(100%/m.test(T),
-    '上半部槽位的状态文字也翻到卡片上方');
+  ok(/^\.last, \.thinking \{[^}]*top:\s*calc\(100%/m.test(T),
+    '状态文字定位在座位卡下方（top: calc(100% …)）');
+  ok(!/\.seat\.flip \.(act-flash|last|thinking|hole|bet|info)/.test(T),
+    'table.css 里不再有 .seat.flip 的翻边规则（牌/反馈/文字/下注额统一同侧）');
   ok(/^\.hole \{[^}]*bottom:\s*calc\(100%/m.test(T),
-    '底牌定位在座位卡外侧（bottom: calc(100% …)）');
+    '底牌定位在座位卡上方（bottom: calc(100% …)）');
   // JS 侧不该再有椭圆几何、也不该再切 crowded 类
   const JSC = strip(JS);
   ok(!/ELLIPSE_RX|ELLIPSE_RY|MY_ANGLE|FELT_BORDER/.test(JSC),
