@@ -11,7 +11,10 @@ const db = require('./db.js');
 
 const SEATS = 9;
 const ACTION_TIMEOUT = 30000;
-const RESULT_SHOW_MS = 6500;
+// 一手结束后保留「摊牌态」（公共牌 + 各家底牌 + 牌型）的时长，之后才进入下一手。
+// 摊牌需要看清每个人的牌与最终牌型，停留久一些；其余人弃牌收池没什么可看的，短一些。
+const RESULT_SHOW_SHOWDOWN_MS = 9000;
+const RESULT_SHOW_FOLD_MS = 4000;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 class Room {
@@ -182,13 +185,27 @@ class Room {
   }
 
   /** 牌局进行中时，座位上的 chips 是「本手开始时」的旧值，必须取引擎里的实时值；
-   *  还没并入引擎的补给（pendingRebuy）也要算进去，那是已经从账号扣掉的真钱。 */
+   *  还没并入引擎的补给（pendingRebuy）也要算进去，那是已经从账号扣掉的真钱。
+   *  这个值含「已进底池的 totalContrib」，是玩家在这张桌上的**总身家**，
+   *  用于退桌结算/审计（钱不能凭空消失）—— 不要用它做座位显示。 */
   liveChips(i) {
     const s = this.seats[i];
     if (!this.game) return s.chips + (s.pendingRebuy || 0);
     const es = this.game.seats[i];
     if (!es) return s.chips + (s.pendingRebuy || 0);
     return es.chips + (this.game.settled ? 0 : es.totalContrib) + (s.pendingRebuy || 0);
+  }
+
+  /** 座位显示用的「身后剩余筹码」：只算还在手里、没进池的那部分，会随下注实时减少。
+   *  与 liveChips 的唯一区别是**不加 totalContrib** —— 加了的话
+   *  身后 + 已下注 = 本手开始时的总额，座位数字就永远停在开局值不动了
+   *  （这正是「剩余筹码显示成开场筹码」的根因）。已下注的部分由座位的 .bet 单独显示。 */
+  displayChips(i) {
+    const s = this.seats[i];
+    if (!this.game) return s.chips + (s.pendingRebuy || 0);
+    const es = this.game.seats[i];
+    if (!es) return s.chips + (s.pendingRebuy || 0);
+    return es.chips + (s.pendingRebuy || 0);
   }
 
   /** 把牌局中补给的筹码并入引擎，只在下一手开始前调用 */
@@ -351,7 +368,8 @@ class Room {
     this.lastResult = result;
     this.processLeaves();
     this.broadcast();
-    await sleep(RESULT_SHOW_MS);
+    // 摊牌停留久一点（看清各家牌），弃牌收池快一点
+    await sleep(result && result.reason === 'showdown' ? RESULT_SHOW_SHOWDOWN_MS : RESULT_SHOW_FOLD_MS);
     this.lastResult = null;
     this.broadcast();
   }
@@ -459,8 +477,12 @@ class Room {
       return {
         i,
         name: s.name,
-        chips: this.liveChips(i),     // 牌局中用引擎实时值，避免显示「本手开始时」的旧筹码
+        chips: this.displayChips(i),  // 座位显示「身后剩余」，随下注实时减少（不含已进池部分）
         bet: es ? es.bet : 0,
+        // 本座位当前还需跟多少才能跟上本轮最高注（0 = 已跟平/可过牌）。
+        // 只在牌局进行中有意义，让前端能标出「谁还欠注、欠多少」。
+        toCall: (es && es.inHand && !es.folded && !es.allIn && g && g.phase !== 'idle')
+          ? Math.max(0, (g.roundBet || 0) - es.bet) : 0,
         folded: es ? es.folded : false,
         allIn: es ? es.allIn : false,
         inHand: es ? es.inHand : false,
@@ -482,7 +504,7 @@ class Room {
     const u = this.ctx.getUser(name);
     if (u) you.account = u.chips;
     if (mySeat >= 0) {
-      you.tableChips = this.liveChips(mySeat);
+      you.tableChips = this.displayChips(mySeat);   // 身后剩余，与座位显示一致
       you.leaveAfterHand = this.seats[mySeat].leaveAfterHand;
       if (g && g.seats[mySeat] && g.seats[mySeat].hole.length === 2) {
         you.hole = g.seats[mySeat].hole;

@@ -433,10 +433,6 @@ button, .room-item, .lseat, .seat, #raise-slider {
   .timer { order: -2; width: 100%; gap: 5px; margin-bottom: 2px; }
   .timer-track { flex: 1; width: auto; height: 6px; }
   .timer-sec { font-size: 14px; }
-
-  /* 结算浮层别挡住桌面 */
-  .result-float { bottom: 72px; padding: 10px 14px; min-width: 300px; }
-  .result-float h4 { font-size: 13px; margin-bottom: 7px; }
 }
 
 /* 超矮屏（如 iPhone SE 横屏 667×375、部分安卓 640×320）——同样只压画布之外的东西。
@@ -447,51 +443,54 @@ button, .room-item, .lseat, .seat, #raise-slider {
   .prompt { font-size: 10px; margin-bottom: 4px; }
   .quick button { font-size: 9px; }
   .timer-sec { font-size: 13px; }
-  .result-float { bottom: 62px; min-width: 260px; }
 }
 
-/* ==================== 竖屏：强制横屏 ====================
- * 本游戏强制横屏游玩。竖屏下把整个牌桌界面（顶栏 / 牌桌 / 操作条 / 侧栏）隐藏，
- * 铺满一张「请旋转到横屏」的引导卡，用户转到横屏后引导自动消失、牌桌照常显示。
+/* ==================== 竖屏：整体旋转 90° ====================
+ * 牌桌是固定 2:1 的横向界面，竖屏原生放不下。这里把**整个界面作为一块整体**转 90°，
+ * 用竖屏设备横过来玩 —— 不依赖系统旋转锁，即使用户锁定了竖屏也能横向呈现。
  *
- * 为什么强制横屏：牌桌是固定 2:1 的横向画布，竖屏下它只能按宽度缩放、高度用一半，
- * 牌面实显不足 20px（真机审计实测），侧倒或缩小都损害可玩性。横屏才能给牌桌足够尺寸。
+ * 关键：transform 不改变布局盒子。要让转 90° 后严丝合缝铺满竖屏，必须先把容器尺寸
+ * **宽高对调**成「未来横向占用的尺寸」：宽 = 竖屏视口高(100vh)，高 = 竖屏视口宽(100vw)，
+ * 再绕自身中心 rotate(90°) 并居中定位。旋转后视觉宽=元素高=100vw（铺满屏宽）、
+ * 视觉高=元素宽=100vh（铺满屏高）。
  *
- * .rotate-hint 默认隐藏（横屏时不占位），只在 @media(orientation:portrait) 显示；
- * fixed 铺满视口 + 高 z-index，盖住底下的牌桌。fitCanvas() 在竖屏 .table-fit 被隐藏、
- * 量不到尺寸时会直接跳过（见 table.js），不会写入错误的 --tscale。 */
-.rotate-hint { display: none; }
+ * .rot-root 横屏是 display:contents（布局透明，topbar/layout 直接参与 body 的 flex 列，
+ * 横屏零影响）；竖屏才实体化为下面这个 fixed 旋转层。
+ *
+ * ⚠️ 配套：table.js 的 fitCanvas() 必须用 offsetWidth/offsetHeight（布局尺寸）而不是
+ * getBoundingClientRect()（旋转后返回的是视觉包围盒，宽高被对调，会把 --tscale 算错）。 */
+.rot-root { display: contents; }
 
 @media (orientation: portrait) {
-  /* 竖屏：隐藏整个牌桌界面，只留引导卡 */
-  .topbar, .layout { display: none !important; }
-  .rotate-hint {
-    display: flex; align-items: center; justify-content: center;
-    position: fixed; inset: 0; z-index: 200;
-    padding: 24px;
-    background: var(--bg);
-    background-image: radial-gradient(1200px 700px at 50% -10%, #1b2434, var(--bg));
+  .rot-root {
+    display: flex; flex-direction: column;
+    position: fixed; top: 50%; left: 50%;
+    width: 100vh; height: 100vw;               /* 宽高对调：为旋转后铺满做准备 */
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center center;
+    overflow: hidden;
+    /* 旋转层自带实色背景，盖住 body 在竖屏下可能露出的空白 */
+    background-color: var(--bg);
   }
-  .rotate-card {
-    text-align: center; max-width: 320px;
-    color: var(--txt);
-  }
-  .rotate-icon {
-    font-size: 64px; line-height: 1; margin-bottom: 18px;
-    /* 手机图标轻微左右摆动，暗示「转一下」 */
-    animation: rotate-wobble 2s ease-in-out infinite;
-  }
-  .rotate-card h2 {
-    margin: 0 0 12px; font-size: 22px; letter-spacing: 1px; color: var(--gold);
-  }
-  .rotate-card p {
-    margin: 0; font-size: 14px; line-height: 1.7; color: var(--muted);
-  }
-}
+  /* 旋转层内部就是原来的横屏两段式：顶栏 + 主区(flex:1)。
+     .layout 的高度在这里由 flex 列负责撑满旋转层的高度(=100vw)。 */
+  .rot-root > .layout { flex: 1 1 auto; min-height: 0; }
 
-@keyframes rotate-wobble {
-  0%, 100% { transform: rotate(-18deg); }
-  50%      { transform: rotate(18deg); }
+  /* 侧栏改抽屉：旋转后可用「视觉宽度」= rot-root 高度(=竖屏宽 100vw)，很窄，
+     常驻的 320px 侧栏会把牌桌挤到很小。收成抽屉后 .layout 单列，牌桌 + 操作条占满。
+     grid 列轨道要显式改单列 —— 子项 display:none 不会让 320px 轨道消失。
+     position:relative 让 .side.open 抽屉相对 .layout 绝对定位。 */
+  .layout { grid-template-columns: minmax(0, 1fr); position: relative; }
+  .panel-toggle { display: inline-block; }   /* 顶栏「记录」按钮召唤抽屉 */
+  .side { display: none; }
+  .side.open {
+    display: flex; flex-direction: row; gap: 8px;
+    position: absolute; right: 8px; top: 6px; bottom: 6px;
+    width: min(560px, 80%); z-index: 30;
+    background: rgba(13, 17, 23, .97); border: 1px solid var(--line);
+    border-radius: 12px; padding: 8px;
+  }
+  .side.open .panel { flex: 1; margin-bottom: 0; }
 }
 
 /* 竖屏 + 矮（小平板竖屏、折叠屏展开等）：横屏矮屏那一档已按 orientation 排除，
@@ -543,16 +542,6 @@ button, .room-item, .lseat, .seat, #raise-slider {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: .55; transform: scale(1.12); }
 }
-.result-float {
-  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%);
-  background: rgba(12,18,26,.96); border: 1px solid var(--gold); border-radius: 14px;
-  padding: 14px 18px; min-width: 380px; max-width: 92vw; z-index: 20;
-  box-shadow: 0 20px 50px rgba(0,0,0,.6);
-}
-.result-float h4 { margin: 0 0 10px; font-size: 14px; color: var(--gold); }
-.result-float .result-board { display: flex; gap: 4px; margin-bottom: 10px; }
-.result-float .res-row { margin-bottom: 4px; }
-
 /* 窄屏且够高：主区改成单列（侧栏挪到下方，允许滚动）。
  *
  * 三个条件缺一不可：

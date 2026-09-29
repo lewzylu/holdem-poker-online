@@ -225,15 +225,60 @@
   font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
   flex-shrink: 0;
 }
-/* 下注额：下半部的槽位挂在右下，上半部（.flip）翻到右上 —— 都朝着底池那一侧 */
+/* 下注额：下半部的槽位挂在右下，上半部（.flip）翻到右上 —— 都朝着底池那一侧。
+ * 做成醒目的金色筹码胶囊（前缀一枚 ● 像一叠筹码），比原来的暗底小字明显得多，
+ * 一眼能看出「谁下了多少」。全下时转成红色高亮。 */
 .bet {
-  position: absolute; right: -4px; bottom: -8px;
-  padding: 1px 6px; border-radius: 8px; font-size: 12px;
-  background: #0e1420; border: 1px solid var(--line);
-  color: var(--gold); font-weight: 700; white-space: nowrap;
+  position: absolute; right: -6px; bottom: -10px;
+  display: flex; align-items: center; gap: 3px;
+  padding: 2px 8px; border-radius: 999px; font-size: 13px;
+  background: linear-gradient(180deg, #ffd977, var(--gold));
+  border: 1px solid rgba(0, 0, 0, .25);
+  color: #3b2600; font-weight: 800; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .45);
   pointer-events: none;
 }
-.seat.flip .bet { top: -8px; bottom: auto; }
+.bet::before {
+  content: '●'; font-size: 9px; color: rgba(59, 38, 0, .7);
+}
+.bet.allin {
+  background: linear-gradient(180deg, #ff8a82, var(--red));
+  color: #2b0705;
+}
+.seat.flip .bet { top: -10px; bottom: auto; }
+
+/* ---- 庄家按钮（Dealer Button）----
+ * 全桌公开信息，所有座位都要看得见（所以没放进对手会被隐藏的 .sub）。
+ * 仿真实赌场的白色筹码：径向高光的白盘 + 金边 + 一圈金色虚线 + 黑色粗 "D"，
+ * 比原来那枚小胶囊徽标醒目得多，一眼能定位庄家。
+ * 挂在座位卡**左侧、垂直居中**：左侧没有其他浮层，且垂直居中不受 .flip（上/下半部
+ * 牌朝向翻转）影响，探出量控制在 13px 以内，不会侵入相邻座位（席间空隙约 30px）。
+ * z-index 高于底牌，任何时候都压在最上层。 */
+.dealer-chip {
+  position: absolute; left: -13px; top: 50%;
+  transform: translateY(-50%);
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(circle at 38% 32%, #ffffff 0%, #f4ead0 55%, #e6d097 100%);
+  border: 2px solid var(--gold);
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, .85) inset,       /* 内白圈 */
+    0 2px 6px rgba(0, 0, 0, .55),                    /* 落影，浮起感 */
+    0 0 0 1px rgba(0, 0, 0, .3);
+  color: #2a1c00; font-weight: 900; font-size: 14px;
+  line-height: 1; letter-spacing: -.02em;
+  font-family: Georgia, "Times New Roman", serif;
+  pointer-events: none; z-index: 10;
+}
+/* 金色虚线外圈：真实 dealer button 常见的一圈刻纹 */
+.dealer-chip::before {
+  content: ''; position: absolute; inset: 2px;
+  border-radius: 50%;
+  border: 1px dashed rgba(180, 130, 20, .7);
+}
+
 .sub {
   display: flex; gap: 4px; align-items: center; justify-content: center;
   white-space: nowrap;
@@ -243,7 +288,6 @@
   background: rgba(255, 255, 255, .12); color: var(--txt);
   font-weight: 700; font-size: 11px; white-space: nowrap;
 }
-.badge.dealer { background: rgba(240, 180, 41, .9); color: #3b2600; }
 .badge.sb, .badge.bb { background: rgba(74, 158, 255, .85); color: #04121f; }
 .badge.allin { background: rgba(255, 95, 86, .9); color: #2b0705; }
 .badge.hand { background: rgba(46, 204, 113, .85); color: #04240f; }
@@ -475,7 +519,13 @@
   background: var(--bg2); border: 1px solid var(--line);
 }
 .prompt { color: var(--muted); font-size: 12px; margin-bottom: 6px; min-height: 16px; }
-.prompt b { color: var(--txt); }
+.prompt b { color: var(--txt); font-variant-numeric: tabular-nums; }
+/* 需跟注的金额：金色高亮，是这一行里最该被一眼看到的数字 */
+.prompt b.need-call {
+  color: #3b2600; background: var(--gold);
+  padding: 0 7px; border-radius: 999px; font-weight: 800;
+}
+.prompt b.can-check { color: var(--green); }
 .buttons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 button.act {
@@ -537,15 +587,4 @@ button.act kbd {
   padding: 20px;
 }
 
-/* ==================== 结算浮层（细节在 app.css） ==================== */
-.result-float .result-board { display: flex; gap: 4px; }
-.result-float .res-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 3px 0;
-}
-.result-float .rname { width: 96px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.result-float .rcards { display: flex; gap: 3px; }
-.result-float .rhand { flex: 1; font-size: 12px; color: var(--muted); }
-.result-float .rwon { color: var(--green); font-weight: 700; font-size: 12px; }
-.result-float .rlost { color: var(--muted); font-size: 12px; }
-.result-float .res-row.iswin { background: rgba(240, 180, 41, .08); border-radius: 6px; }
+

@@ -14,8 +14,7 @@
     btnAllin: $('#btn-allin'), slider: $('#raise-slider'), quick: $('#quick'),
     timer: $('#timer'), timerBar: $('#timer-bar'), timerSec: $('#timer-sec'),
     score: $('#score'), log: $('#log'), chat: $('#chat'),
-    chatText: $('#chat-text'), chatSend: $('#chat-send'),
-    result: $('#result')
+    chatText: $('#chat-text'), chatSend: $('#chat-send')
   };
 
   let myName = null, state = null, timerId = null;
@@ -109,13 +108,17 @@
 
   /** 算出画布的等比缩放系数写进 --tscale。
    *  只取一个系数、两轴同用：任一轴单独缩放就会破坏「比例固定」这个前提。
-   *  可用区域量不到（竖屏下 .table-fit 被隐藏、或 jsdom 没有布局引擎）时直接跳过，
-   *  留着上一次的值比写入 0 安全。 */
+   *
+   *  用 offsetWidth/offsetHeight（布局尺寸）而不是 getBoundingClientRect()：
+   *  竖屏时 .rot-root 整体 rotate(90°)，getBoundingClientRect 返回的是**旋转后**的
+   *  视觉包围盒（宽高被对调），会把 --tscale 算错、画布尺寸也不对；offsetWidth/Height
+   *  是元素自身的布局尺寸，不受任何祖先 transform 影响，正是我们要的「旋转前可用区域」。
+   *  量不到（元素未布局 / jsdom 无布局引擎）时直接跳过，留着上一次的值比写入 0 安全。 */
   function fitCanvas() {
     if (!el.fit || !el.canvas) return;
-    const r = el.fit.getBoundingClientRect();
-    if (!r.width || !r.height) return;
-    const s = Math.min(r.width / CANVAS_W, r.height / CANVAS_H);
+    const w = el.fit.offsetWidth, h = el.fit.offsetHeight;
+    if (!w || !h) return;
+    const s = Math.min(w / CANVAS_W, h / CANVAS_H);
     if (s > 0) el.canvas.style.setProperty('--tscale', s);
   }
 
@@ -172,7 +175,6 @@
     renderLog(state.logs || []);
     renderChat(state.chat || []);
     renderActions();
-    renderResult(state.result);
     // 首帧渲染完再补一次：脚本执行时侧栏/操作条可能还没定下最终高度
     if (firstRender) { firstRender = false; scheduleFit(); }
   }
@@ -344,7 +346,6 @@
           : '<div class="card small back"></div><div class="card small back"></div>') + '</div>';
       }
       let badges = '';
-      if (t.buttonIdx === s.i) badges += '<span class="badge dealer">D</span>';
       if (t.sbIdx === s.i) badges += '<span class="badge sb">小盲</span>';
       if (t.bbIdx === s.i) badges += '<span class="badge bb">大盲</span>';
       if (s.allIn) badges += '<span class="badge allin">ALL IN</span>';
@@ -373,8 +374,20 @@
           '</div>'
         : '';
 
+      // 「出局」只在筹码为 0 且**不在本手牌局中**时成立：全下的玩家身后也是 0，
+      // 但他仍在牌里、不该被灰掉（那会和「已淘汰」混为一谈）。
+      const isOut = s.chips <= 0 && !s.inHand;
+      // 本轮下注：全下时标注「ALL IN」，否则显示金额；押注前不占位。
+      const betTag = s.bet > 0
+        ? '<div class="bet' + (s.allIn ? ' allin' : '') + '">' + UI.fmt(s.bet) + '</div>'
+        : '';
+      // 庄家按钮（Dealer Button）：独立浮层，不放进 .sub（对手的 .sub 是隐藏的）——
+      // 庄位是全桌公开信息，所有人都必须看得见。做成醒目的白金圆形筹码。
+      const dealerChip = (t.buttonIdx === s.i)
+        ? '<div class="dealer-chip" title="庄家">D</div>'
+        : '';
       html += '<div class="seat' + (p.flip ? ' flip' : '') + (s.folded ? ' folded' : '') +
-        (isTurn ? ' turn' : '') + (s.chips <= 0 ? ' out' : '') + (mine ? ' mine' : '') +
+        (isTurn ? ' turn' : '') + (isOut ? ' out' : '') + (mine ? ' mine' : '') +
         (isActing ? ' acting t-' + tier : '') + '" ' +
         'data-seat="' + s.i + '" data-slot="' + k + '"' +
         (isActing ? ' data-tier="' + tier + '"' : '') + ' ' + posStyle + '>' +
@@ -385,10 +398,11 @@
           '<div class="chips">' + UI.fmt(s.chips) + '</div>' +
         '</div>' +
         (badges ? '<div class="sub">' + badges + '</div>' : '') +
+        dealerChip +
         secTag +
         status +
         flash +
-        (s.bet > 0 ? '<div class="bet">' + s.bet + '</div>' : '') +
+        betTag +
         '</div>';
     }
     el.seats.innerHTML = html;
@@ -400,10 +414,12 @@
     const t = state.table;
     let html = '<tr><th>座位</th><th style="text-align:right">桌上</th><th style="text-align:right">本轮</th></tr>';
     t.seats.filter(s => s.name).forEach(s => {
-      html += '<tr class="' + (s.chips <= 0 ? 'out' : '') + '">' +
+      const isOut = s.chips <= 0 && !s.inHand;
+      const betCell = s.allIn ? 'ALL IN' : (s.bet ? UI.fmt(s.bet) : '—');
+      html += '<tr class="' + (isOut ? 'out' : '') + '">' +
         '<td>' + UI.esc(s.name) + (s.name === myName ? '（我）' : '') + '</td>' +
         '<td style="text-align:right">' + UI.fmt(s.chips) + '</td>' +
-        '<td style="text-align:right">' + (s.bet || '—') + '</td></tr>';
+        '<td style="text-align:right">' + betCell + '</td></tr>';
     });
     el.score.innerHTML = html;
   }
@@ -463,8 +479,11 @@
     } else {
       el.btnRaise.querySelector('.lbl').textContent = '加注';
     }
-    el.prompt.innerHTML = '<b>轮到你了</b> · 底池 <b>' + L.pot + '</b>' +
-      (L.toCall > 0 ? ' · 需跟注 <b>' + L.toCall + '</b>' : ' · 可以过牌');
+    el.prompt.innerHTML = '<b>轮到你了</b> · 底池 <b>' + UI.fmt(L.pot) + '</b>' +
+      (L.toCall > 0
+        ? ' · 需跟注 <b class="need-call">' + UI.fmt(L.toCall) + '</b>'
+        : ' · <b class="can-check">可以过牌</b>') +
+      ' · 我的筹码 <b>' + UI.fmt(you.tableChips) + '</b>';
     startTimer();
   }
 
@@ -528,22 +547,14 @@
     else if (k === 'a') submit({ type: 'allin' });
   });
 
-  /* ---------- 结算浮层 ---------- */
-  function renderResult(r) {
-    if (!r) { el.result.hidden = true; return; }
-    const board = (r.board || []).map(c => UI.cardHTML(c, 'mini')).join('');
-    const rows = (r.revealed || []).map(p =>
-      '<div class="res-row ' + (p.won > 0 ? 'iswin' : '') + '">' +
-      '<div class="rname">' + UI.esc(p.name) + '</div>' +
-      '<div class="rcards">' + (p.hole || []).map(c => UI.cardHTML(c, 'mini')).join('') + '</div>' +
-      '<div class="rhand">' + (p.hand ? UI.esc(p.hand.name) : '') + '</div>' +
-      (p.won > 0 ? '<div class="rwon">+' + UI.fmt(p.won) + '</div>' : '<div class="rlost">—</div>') +
-      '</div>').join('');
-    el.result.innerHTML =
-      '<h4>第 ' + r.hand + ' 手 · ' + (r.reason === 'showdown' ? '摊牌' : '其余人弃牌') + '</h4>' +
-      '<div class="result-board">' + board + '</div>' + rows;
-    el.result.hidden = false;
-  }
+  /* ---------- 摊牌展示 ----------
+   * 不再用结算浮层弹窗。摊牌时一切都摆在牌桌本身上：
+   *   - 公共牌（5 张）在桌面正中依次翻开；
+   *   - 未弃牌玩家的底牌由服务端下发、在各自座位上正面亮出（renderSeats 负责）；
+   *   - 每位摊牌者座位上挂出牌型徽标（renderSeats 的 s.hand）；
+   *   - 谁赢多少走牌局记录。
+   * 服务端把这份「摊牌态」多保留一段时间（room.js 的 RESULT_SHOW_SHOWDOWN_MS），
+   * 让所有人看清后再进入下一手。这里因此不需要任何浮层逻辑。 */
 
   /* ---------- 顶栏与聊天 ---------- */
   el.btnPanel.onclick = () => {

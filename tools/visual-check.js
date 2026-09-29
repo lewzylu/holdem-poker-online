@@ -34,7 +34,7 @@ function ab(args, quiet) {
 }
 
 // 在页面里量一圈几何信息，返回 JSON。注意：agent-browser 的 eval 只接受单行 JS
-const PROBE = "(()=>{const q=s=>document.querySelector(s);const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:+b.x.toFixed(1),y:+b.y.toFixed(1),w:+b.width.toFixed(1),h:+b.height.toFixed(1),r:+b.right.toFixed(1),bt:+b.bottom.toFixed(1)};};const cv=q('.table-canvas');const ts=cv?(parseFloat(getComputedStyle(cv).getPropertyValue('--tscale'))||1):0;const seats=[...document.querySelectorAll('#seats .seat')].map(e=>{const h=e.querySelector('.hole');const fl=e.querySelector('.act-flash');const cs=e.querySelectorAll('.hole .card');let cardGap=null,rankGap=null;if(cs.length>1){const a=cs[0].getBoundingClientRect(),b=cs[1].getBoundingClientRect();cardGap=+(a.right-b.left).toFixed(1);const rk=cs[0].querySelector('.rank');if(rk)rankGap=+(b.left-rk.getBoundingClientRect().right).toFixed(1);}return Object.assign({mine:e.classList.contains('mine'),empty:e.classList.contains('empty'),slot:+e.dataset.slot,flip:e.classList.contains('flip'),hole:rect(h),parts:[...e.querySelectorAll('.info > .avatar, .info > .nm, .info > .chips')].map(rect),flash:rect(fl),cardGap:cardGap,rankGap:rankGap},rect(e));});const acts=[...document.querySelectorAll('button.act')].map(e=>Object.assign({t:e.textContent.trim().slice(0,4)},rect(e)));const rh=q('.rotate-hint');const ft=q('.table-fit');const sd=q('.side');const bd=q('.board');const hs=getComputedStyle(document.documentElement);const bs=getComputedStyle(document.body);return JSON.stringify({vw:innerWidth,vh:innerHeight,sw:document.documentElement.scrollWidth,sh:document.documentElement.scrollHeight,ts:ts,fit:rect(ft),canvas:rect(cv),bar:rect(q('.action-bar')),felt:rect(q('.felt')),seats:seats,acts:acts,myCard:rect(q('.seat.mine .hole .card')),opCard:rect(q('.seat:not(.mine):not(.empty) .hole .card')),top:rect(q('.table-top')),board:rect(bd),boardN:bd?bd.querySelectorAll('.card').length:0,rotate:rh?getComputedStyle(rh).display:'none',fitDisp:ft?getComputedStyle(ft).display:'none',sideDisp:sd?getComputedStyle(sd).display:'none',htmlBg:hs.backgroundColor,bodyBg:bs.backgroundColor});})()";
+const PROBE = "(()=>{const q=s=>document.querySelector(s);const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:+b.x.toFixed(1),y:+b.y.toFixed(1),w:+b.width.toFixed(1),h:+b.height.toFixed(1),r:+b.right.toFixed(1),bt:+b.bottom.toFixed(1)};};const cv=q('.table-canvas');const ts=cv?(parseFloat(getComputedStyle(cv).getPropertyValue('--tscale'))||1):0;const seats=[...document.querySelectorAll('#seats .seat')].map(e=>{const h=e.querySelector('.hole');const fl=e.querySelector('.act-flash');const cs=e.querySelectorAll('.hole .card');let cardGap=null,rankGap=null;if(cs.length>1){const a=cs[0].getBoundingClientRect(),b=cs[1].getBoundingClientRect();cardGap=+(a.right-b.left).toFixed(1);const rk=cs[0].querySelector('.rank');if(rk)rankGap=+(b.left-rk.getBoundingClientRect().right).toFixed(1);}return Object.assign({mine:e.classList.contains('mine'),empty:e.classList.contains('empty'),slot:+e.dataset.slot,flip:e.classList.contains('flip'),hole:rect(h),parts:[...e.querySelectorAll('.info > .avatar, .info > .nm, .info > .chips')].map(rect),flash:rect(fl),cardGap:cardGap,rankGap:rankGap},rect(e));});const acts=[...document.querySelectorAll('button.act')].map(e=>Object.assign({t:e.textContent.trim().slice(0,4)},rect(e)));const rh=q('.rotate-hint');const rr=q('.rot-root');const ft=q('.table-fit');const sd=q('.side');const bd=q('.board');const hs=getComputedStyle(document.documentElement);const bs=getComputedStyle(document.body);return JSON.stringify({vw:innerWidth,vh:innerHeight,sw:document.documentElement.scrollWidth,sh:document.documentElement.scrollHeight,ts:ts,fit:rect(ft),fitLayout:ft?{w:ft.offsetWidth,h:ft.offsetHeight}:null,canvas:rect(cv),bar:rect(q('.action-bar')),felt:rect(q('.felt')),seats:seats,acts:acts,myCard:rect(q('.seat.mine .hole .card')),opCard:rect(q('.seat:not(.mine):not(.empty) .hole .card')),top:rect(q('.table-top')),board:rect(bd),boardN:bd?bd.querySelectorAll('.card').length:0,rotate:rh?getComputedStyle(rh).display:'none',rotRoot:rr?getComputedStyle(rr).display:'none',rotXform:rr?(getComputedStyle(rr).transform!=='none'):false,fitDisp:ft?getComputedStyle(ft).display:'none',sideDisp:sd?getComputedStyle(sd).display:'none',htmlBg:hs.backgroundColor,bodyBg:bs.backgroundColor});})()";
 
 const DEVICES = [
   { name: '桌面 1440×900', w: 1440, h: 900, portrait: false },
@@ -83,13 +83,25 @@ for (const d of DEVICES) {
   ok(opaque(g.htmlBg) && opaque(g.bodyBg),
     'html 与 body 都有实色背景，安全区不露白（html=' + g.htmlBg + '，body=' + g.bodyBg + '）');
 
-  /* ---------- 竖屏：强制横屏，显示转屏引导 ----------
-   * 本游戏强制横屏。竖屏下隐藏整个牌桌界面（顶栏 / 牌桌 / 操作条 / 侧栏），
-   * 铺满一张「请旋转到横屏」的引导卡。用户转到横屏后引导消失、牌桌照常显示。 */
+  /* ---------- 竖屏：整体旋转 90° ----------
+   * 整个界面（.rot-root）作为一块整体转 90° 铺满竖屏。校验点：
+   *   - .rot-root 已实体化为旋转层（display:flex + 有 transform）；
+   *   - 牌桌画布仍可见、--tscale 正常（fitCanvas 用 offsetWidth 量，不受旋转干扰）；
+   *   - .rot-root 的布局尺寸 = 视口宽高对调（宽≈vh、高≈vw），旋转后正好铺满；
+   *   - 无横向滚动。
+   * 注意：座位/画布的几何断言（重叠/留白/等大等）在旋转坐标系下用 getBoundingClientRect
+   * 量会失真，这一档只校验「旋转生效 + 画布可用」，几何正确性由横屏档覆盖。 */
   if (d.portrait) {
-    ok(g.rotate !== 'none', '竖屏显示转屏引导（.rotate-hint display=' + g.rotate + '）');
-    ok(g.fitDisp === 'none', '竖屏隐藏牌桌画布（.table-fit display=' + g.fitDisp + '）');
-    ok(g.sw <= g.vw + 2, '竖屏引导页无横向滚动（scrollWidth ' + g.sw + ' ≤ ' + g.vw + '）');
+    ok(g.rotRoot === 'flex', '竖屏 .rot-root 实体化为旋转层（display=' + g.rotRoot + '）');
+    ok(g.rotXform === true, '竖屏 .rot-root 应用了 transform 旋转');
+    ok(g.fitDisp !== 'none', '竖屏牌桌画布可见（.table-fit display=' + g.fitDisp + '）');
+    ok(g.ts > 0, '竖屏 --tscale 正常（' + g.ts.toFixed(3) + '，说明 fitCanvas 用布局尺寸算对了）');
+    // .table-fit 的布局宽应接近视口高（旋转后成为视觉高度方向）
+    if (g.fitLayout) {
+      ok(g.fitLayout.w >= g.vh * 0.5,
+        '竖屏画布可用区按视口高布局（.table-fit offsetWidth ' + g.fitLayout.w + ' vs vh ' + g.vh + '）');
+    }
+    ok(g.sw <= g.vw + 2, '竖屏无横向滚动（scrollWidth ' + g.sw + ' ≤ ' + g.vw + '）');
     const shotP = path.join(SHOT_DIR, d.w + 'x' + d.h + '.png');
     ab('screenshot "' + shotP + '"', true);
     console.log('    截图 → ' + path.relative(process.cwd(), shotP) + '\n');

@@ -325,9 +325,13 @@
   PokerEngine.prototype.firstActorIndex = function () {
     var n = this.seats.filter(function (s) { return s.inHand; }).length;
     var start;
-    // 翻牌前：单挑由庄家（小盲）先说话；3 人以上由大盲的下家（UTG）先
+    // 翻牌前：单挑由庄家（小盲）先说话；3 人以上由大盲的下家（UTG）先。
+    // 翻牌后：庄家永远**最后**说话（这是「在庄位」的核心优势），所以第一个行动的是
+    // 庄家左手边第一个还能行动的人 —— 3 人以上是小盲，单挑是大盲。
+    // 早先这里写成 start = buttonIdx，等于让庄家翻牌后**第一个**行动，
+    // 与「D 徽标代表有位置、最后行动」完全相反 —— 正是「庄位显示和实际生效不一致」的根因。
     if (this.phase === 'preflop') start = (n === 2) ? this.buttonIdx : this.nextActiveFrom(this.bbIdx);
-    else start = this.buttonIdx;
+    else start = this.nextActiveFrom(this.buttonIdx);
     if (start < 0) return -1;
     if (this.needsAction(this.seats[start])) return start;
     var nx = this.nextActiveFrom(start);

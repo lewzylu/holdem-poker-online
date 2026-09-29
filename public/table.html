@@ -12,6 +12,13 @@
 </head>
 <body>
 
+<!-- .rot-root 包住整个牌桌界面（顶栏 + 主区）。
+     横屏：display:contents，本容器在布局上「透明」，topbar/layout 直接参与 body 的 flex 列，
+           现有横屏布局完全不受影响。
+     竖屏：本容器实体化为一个 fixed 层，宽高对调（宽=100vh、高=100vw）后整体 rotate(90°)，
+           把横向界面转成竖屏可用 —— 不依赖系统旋转锁，锁竖屏也能玩。详见 app.css 竖屏一节。 -->
+<div class="rot-root">
+
 <header class="topbar">
   <div class="brand">♠ 德州扑克</div>
   <div class="tinfo">
@@ -101,17 +108,8 @@
   </aside>
 </div>
 
-<!-- 竖屏引导：本游戏强制横屏。默认隐藏，只有 @media(orientation:portrait) 才显示，
-     显示时铺满全屏盖住牌桌，提示用户把设备转到横屏。 -->
-<div class="rotate-hint" id="rotate-hint">
-  <div class="rotate-card">
-    <div class="rotate-icon">📱</div>
-    <h2>请旋转到横屏</h2>
-    <p>德州扑克需要横屏游玩<br>请把设备转到横向以获得完整牌桌</p>
-  </div>
-</div>
+</div><!-- /.rot-root -->
 
-<div class="result-float" id="result" hidden></div>
 <div id="toast" class="toast"></div>
 
 <script src="/js/cards.js"></script>
