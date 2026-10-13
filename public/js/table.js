@@ -373,7 +373,8 @@
       if (t.bbIdx === s.i) badges += '<span class="badge bb">大盲</span>';
       if (s.allIn) badges += '<span class="badge allin">ALL IN</span>';
       if (!s.connected) badges += '<span class="badge hand">掉线</span>';
-      if (s.hand) badges += '<span class="badge hand">' + UI.esc(s.hand) + '</span>';
+      // 牌型不放在这里 —— 对手的 .sub 是整体隐藏的（见 app.css），
+      // 塞进来就只有自己看得见。它单独走 .hand-tag 浮层（见下）。
       const status = isTurn
         ? '<div class="thinking">' + (s.connected ? '行动中…' : '掉线等待') + '</div>'
         : (s.lastAction ? '<div class="last">' + UI.esc(s.lastAction) + '</div>' : '');
@@ -409,12 +410,18 @@
       const dealerChip = (t.buttonIdx === s.i)
         ? '<div class="dealer-chip" title="庄家">D</div>'
         : '';
+      // 摊牌牌型：独立浮层，所有未弃牌者都显示 —— .sub 对对手是隐藏的，
+      // 而摊牌恰恰要看所有人的牌型。s.hand 由服务端在摊牌态下发，未摊牌时为空。
+      const handTag = s.hand
+        ? '<div class="hand-tag' + (s.won > 0 ? ' won' : '') + '">' + UI.esc(s.hand) + '</div>'
+        : '';
       html += '<div class="seat' + (p.flip ? ' flip' : '') + (s.folded ? ' folded' : '') +
         (isTurn ? ' turn' : '') + (isOut ? ' out' : '') + (mine ? ' mine' : '') +
         (isActing ? ' acting t-' + tier : '') + '" ' +
         'data-seat="' + s.i + '" data-slot="' + k + '"' +
         (isActing ? ' data-tier="' + tier + '"' : '') + ' ' + posStyle + '>' +
         cards +
+        handTag +
         '<div class="info">' +
           '<div class="avatar">' + UI.esc(s.name.slice(0, 1)) + '</div>' +
           '<div class="nm">' + UI.esc(s.name) + (mine ? '（我）' : '') + '</div>' +

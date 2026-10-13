@@ -340,20 +340,23 @@ button, .room-item, .lseat, .seat, #raise-slider {
 }
 .panel-toggle { display: none; }
 
-/* ==================== 手机横屏 / 矮屏（横屏且高度 ≤ 600px）====================
+/* ==================== 手机横屏 / 矮屏（**视觉**尺寸：横向的一块、高 ≤ 600px）====================
  * 横屏手机典型视口：844×390、932×430、1080×490、740×360（CSS 像素）
  * 策略：压缩顶栏、侧栏改成可召唤的抽屉、**操作条竖过来放右侧**，
  * 把纵向空间全部留给牌桌 —— 画布在这类屏上总是卡在高度，省下的每 1px 高
  * 都直接变成牌桌的 2px 宽。
  *
- * 必须带 orientation: landscape：矮的**竖**屏（小平板竖屏、手机横屏转回竖屏的中间态）
- * 也满足 max-height:600px，但那里宽度才是稀缺资源，把操作条塞到右边会两头都不够用。
+ * 第二个条件 (max-width:600px) and (orientation:portrait) 是**竖屏**那一半：
+ * 竖屏时整个界面被旋转 90°（见下面 .rot-root），旋转后的视觉尺寸是「宽=100vh、
+ * 高=100vw」—— 同样是一块横向的屏，所以必须命中同一套规则。
+ * 少了这一半，竖屏旋转后会退回桌面布局（侧栏常驻 320px），和真横屏长得不一样。
  *
  * 注意：这里不能出现任何牌桌内部元素（.felt / .seat / .board / .table-top / 座位里的牌）——
  * 它们在固定逻辑画布里，尺寸是常量，靠 --tscale 整体缩放。
  * 在断点里改它们就等于把「比例固定」这件事又破坏掉了。
  */
-@media (max-height: 600px) and (orientation: landscape) {
+@media (max-height: 600px) and (orientation: landscape),
+       (max-width: 600px) and (orientation: portrait) {
   .topbar { padding: 4px max(10px, env(safe-area-inset-left)); min-height: 38px; gap: 8px; }
   .brand { font-size: 13px; }
   .brand span { display: none; }
@@ -434,8 +437,10 @@ button, .room-item, .lseat, .seat, #raise-slider {
 }
 
 /* 超矮屏（如 iPhone SE 横屏 667×375、部分安卓 640×320）——同样只压画布之外的东西。
-   操作条已在右侧竖排，这里只是把内边距与字号再收一档，别写 min-width（两列会被撑破）。 */
-@media (max-height: 430px) and (orientation: landscape) {
+   操作条已在右侧竖排，这里只是把内边距与字号再收一档，别写 min-width（两列会被撑破）。
+   竖屏那一半同理：旋转后的视觉高度 = 视口宽，所以判「视口宽 ≤430」。 */
+@media (max-height: 430px) and (orientation: landscape),
+       (max-width: 430px) and (orientation: portrait) {
   .action-bar { padding: 5px 4px; }
   button.act { padding: 7px 3px; font-size: 12px; min-height: 34px; }
   .prompt { font-size: 10px; margin-bottom: 4px; }
@@ -474,21 +479,10 @@ button, .room-item, .lseat, .seat, #raise-slider {
      .layout 的高度在这里由 flex 列负责撑满旋转层的高度(=100vw)。 */
   .rot-root > .layout { flex: 1 1 auto; min-height: 0; }
 
-  /* 侧栏改抽屉：旋转后可用「视觉宽度」= rot-root 高度(=竖屏宽 100vw)，很窄，
-     常驻的 320px 侧栏会把牌桌挤到很小。收成抽屉后 .layout 单列，牌桌 + 操作条占满。
-     grid 列轨道要显式改单列 —— 子项 display:none 不会让 320px 轨道消失。
-     position:relative 让 .side.open 抽屉相对 .layout 绝对定位。 */
-  .layout { grid-template-columns: minmax(0, 1fr); position: relative; }
-  .panel-toggle { display: inline-block; }   /* 顶栏「记录」按钮召唤抽屉 */
-  .side { display: none; }
-  .side.open {
-    display: flex; flex-direction: row; gap: 8px;
-    position: absolute; right: 8px; top: 6px; bottom: 6px;
-    width: min(560px, 80%); z-index: 30;
-    background: rgba(13, 17, 23, .97); border: 1px solid var(--line);
-    border-radius: 12px; padding: 8px;
-  }
-  .side.open .panel { flex: 1; margin-bottom: 0; }
+  /* 竖屏**没有任何专属布局**：旋转之后的视觉尺寸本来就是一块横向屏，
+     上面「手机横屏 / 矮屏」那档断点（它的第二个条件正是竖屏）会原样接管。
+     于是竖屏与真横屏长得一模一样 —— 抽屉、单列、操作条竖排都不必在这里写第二遍，
+     写第二遍迟早会和横屏那一套走偏。 */
 }
 
 /* 竖屏 + 矮（小平板竖屏、折叠屏展开等）：横屏矮屏那一档已按 orientation 排除，
@@ -499,6 +493,14 @@ button, .room-item, .lseat, .seat, #raise-slider {
 @supports (padding: env(safe-area-inset-left)) {
   @media (orientation: landscape) {
     .layout { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  }
+  /* 竖屏：界面被 rotate(90deg) 之后，它的「左右」正好落在屏幕的「上下」——
+     刘海与底部横条要按这个映射避让，否则会压在界面的左/右边缘（顶栏那一头）上。 */
+  @media (orientation: portrait) {
+    .layout {
+      padding-left: max(12px, env(safe-area-inset-top));
+      padding-right: max(12px, env(safe-area-inset-bottom));
+    }
   }
   .action-bar { margin-bottom: env(safe-area-inset-bottom); }
 }

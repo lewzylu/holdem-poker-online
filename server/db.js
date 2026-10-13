@@ -215,6 +215,22 @@ function addChips(name, delta) {
   return true;
 }
 
+/* 筹码领取：账号余额见底时的自助入口。
+ * 没有支付系统，所以做成「余额低于 CLAIM_MIN 才能领」的免费补给 ——
+ * 若不限门槛，无限领取会让筹码彻底失去意义（输赢都无所谓了，牌局也就散了）。
+ * 门槛取 1000（房间默认买入）：余额还够买一桌就不给领，见底了才补。 */
+const CLAIM_AMOUNT = 5000;
+const CLAIM_MIN = 1000;
+
+function claim(name) {
+  const u = db.users[key(name)];
+  if (!u) return { error: '账号不存在' };
+  if (u.chips >= CLAIM_MIN) return { error: '余额还有 ' + u.chips + '，够用了' };
+  u.chips += CLAIM_AMOUNT;
+  save();
+  return { ok: true, amount: CLAIM_AMOUNT, chips: u.chips };
+}
+
 function recordHand(name, won) {
   const u = db.users[key(name)];
   if (!u) return;
@@ -264,6 +280,7 @@ seedDefaults();
 module.exports = {
   START_CHIPS, MIN_BUYIN, MAX_BUYIN, SESSION_TTL, BOT_BANKROLL,
   register, login, logout, userByToken, publicUser, getUser,
-  addChips, recordHand, leaderboard, ensureBot,
+  addChips, recordHand, leaderboard, ensureBot, claim,
+  CLAIM_AMOUNT, CLAIM_MIN,
   _db: db, _save: save
 };

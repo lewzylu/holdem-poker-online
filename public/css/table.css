@@ -291,6 +291,27 @@
 }
 
 
+/* ---- 摊牌牌型 ----
+ * 单独做成浮层，不塞进 .sub：对手的 .sub 是整体隐藏的（见 app.css），
+ * 塞进去就只有自己看得见 —— 而摊牌恰恰要看所有人的牌型。
+ * 位置在底牌上方（牌顶约在卡片上方 48px，这里取 50px 贴着牌顶）：
+ * 牌区之上还空着，又不与卡片下方的动作文字 / 反馈抢位置。 */
+.hand-tag {
+  position: absolute; left: 50%; bottom: calc(100% + 50px);
+  transform: translateX(-50%);
+  /* 高度要压住：顶边两席（槽位 5/6）上方只剩约 22px，最长的「皇家同花顺」
+     按 11px 字号 + 上下内边距算只剩 2.7px 余量，换个平台字体就可能顶出画布。
+     收到 10px 字 + 零上下内边距（高度 14px），余量回到 8px。 */
+  padding: 0 7px; border-radius: 999px;
+  background: rgba(12, 18, 26, .95);
+  border: 1px solid var(--line);
+  color: var(--txt);
+  font-size: 10px; line-height: 1.4; font-weight: 700; white-space: nowrap;
+  pointer-events: none; z-index: 14;
+}
+/* 赢家：金色高亮，一眼看出这手是谁的 */
+.hand-tag.won { border-color: var(--gold); color: var(--gold); }
+
 /* ---- 庄家按钮（Dealer Button）----
  * 全桌公开信息，所有座位都要看得见（所以没放进对手会被隐藏的 .sub）。
  * 仿真实赌场的白色筹码：径向高光的白盘 + 金边 + 一圈金色虚线 + 黑色粗 "D"，

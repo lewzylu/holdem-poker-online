@@ -339,6 +339,14 @@ async function handle(ws, msg) {
       room.broadcast();
       return;
     }
+    case 'claim': {
+      const a = requireAuth(ws); if (!a) return;
+      const r = db.claim(a.name);
+      if (r.error) return sendWs(ws, { type: 'error', msg: r.error });
+      // 回一条 me：各页面靠它把余额刷成最新（大厅顶栏就是读这条消息的 user.chips）
+      sendWs(ws, { type: 'me', user: db.publicUser(db.getUser(a.name)), room: a.roomId || null });
+      return sendWs(ws, { type: 'notice', msg: '已领取 ' + r.amount + ' 筹码，当前余额 ' + r.chips });
+    }
     case 'ping': return sendWs(ws, { type: 'pong' });
     default: return;
   }

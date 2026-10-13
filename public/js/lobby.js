@@ -3,6 +3,7 @@
   const $ = s => document.querySelector(s);
   const el = {
     meName: $('#me-name'), meChips: $('#me-chips'), logout: $('#btn-logout'), connTip: $('#conn-tip'),
+    claim: $('#btn-claim'),
     list: $('#room-list'), refresh: $('#refresh'),
     cTitle: $('#c-title'), cSb: $('#c-sb'), cBb: $('#c-bb'), cBuy: $('#c-buyin'),
     create: $('#create'), joinId: $('#join-id'), join: $('#join'),
@@ -29,8 +30,19 @@
     myName = m.user.name;
     el.meName.textContent = myName;
     el.meChips.textContent = UI.fmt(m.user.chips);
+    syncClaim(m.user.chips);
     Net.send({ type: 'listRooms' });
   });
+
+  /* 领取筹码：余额低于门槛才让点，免得点了只收到一句「够用了」。
+     门槛 1000 与 db.js 的 CLAIM_MIN 一致（服务端才是权威，这里只是让按钮别白点）。 */
+  const CLAIM_MIN = 1000;
+  function syncClaim(chips) {
+    const enough = (chips || 0) >= CLAIM_MIN;
+    el.claim.disabled = enough;
+    el.claim.title = enough ? '余额充足，无需领取' : '余额不足 ' + CLAIM_MIN + '，可领取 5000';
+  }
+  el.claim.onclick = () => Net.send({ type: 'claim' });
   Net.on('needLogin', goLogin);          // 无 token 或续期失败
   Net.on('auth', m => { if (!m.ok) goLogin(); });
   Net.on('joined', () => sessionStorage.removeItem('poker_no_auto'));  // 重新进房允许自动进桌
