@@ -174,17 +174,10 @@
   background: rgba(240, 180, 41, .1);
   border-color: var(--gold);
 }
-.sit-tag {
-  display: none; align-items: center;
-  font-size: 12px; font-weight: 700; color: var(--gold); letter-spacing: 1px;
-}
-.seat.empty.can-sit:hover .empty-tag { display: none; }
-.seat.empty.can-sit:hover .sit-tag { display: flex; }
-/* 触屏没有 hover，可坐的空位直接把「＋坐下」常显出来，否则玩家看不出能点 */
-@media (hover: none) {
-  .seat.empty.can-sit .empty-tag { display: none; }
-  .seat.empty.can-sit .sit-tag { display: flex; }
-}
+/* 可坐的空位：文案由 JS 直接写「＋ 坐下」（见 renderSeats），这里只管样式 ——
+   常显金色，hover 再加底色提示。以前靠 hover 换文案，桌面端第一眼毫无可点迹象。 */
+.seat.empty.can-sit .empty-tag { color: var(--gold); letter-spacing: 1px; }
+.seat.empty.can-sit:hover .empty-tag { color: #ffd977; }
 
 /* ---- 底牌：卡片外侧的浮层 ----
  * 只压住卡片顶部 --hole-peek 那一小截，像从卡片后面抽出来的一角。

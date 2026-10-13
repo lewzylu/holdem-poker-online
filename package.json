@@ -10,7 +10,8 @@
     "test": "node tools/e2e.js 4 8",
     "test:edge": "node tools/edge.js",
     "test:nav": "node tools/nav-test.js",
-    "test:layout": "node tools/layout-test.js"
+    "test:layout": "node tools/layout-test.js",
+    "test:ux": "node tools/ux-test.js"
   },
   "keywords": [
     "poker",

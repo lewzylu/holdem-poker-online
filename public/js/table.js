@@ -9,7 +9,7 @@
     fit: $('#table-fit'), canvas: $('#table-canvas'),
     phase: $('#phase'), pot: $('#pot b'), blind: $('#blind'),
     board: $('#board'), seats: $('#seats'), waiting: $('#waiting'),
-    fx: $('#fx'), btnSound: $('#btn-sound'),
+    fx: $('#fx'), btnSound: $('#btn-sound'), btnClaim: $('#btn-claim'),
     prompt: $('#prompt'),
     btnFold: $('#btn-fold'), btnCall: $('#btn-call'), btnRaise: $('#btn-raise'),
     btnAllin: $('#btn-allin'), slider: $('#raise-slider'), quick: $('#quick'),
@@ -154,6 +154,7 @@
   /* ---------- 渲染 ---------- */
   let firstRender = true;
   let prevSeat = null;      // 上一次渲染时我的座位号（null = 尚未渲染过），用于判定「刚入座」
+  let prevMyTurn = false;   // 上一次渲染时是否轮到我行动，用于判定「刚轮到我」
   function render() {
     if (!state) return;
     const room = state.room, t = state.table, you = t.you;
@@ -170,6 +171,17 @@
     el.waiting.hidden = room.status === 'playing';
     el.btnStand.disabled = you.seat < 0;
     el.btnRebuy.disabled = you.seat < 0;
+    // 领取入口（与大厅同一套规则）：余额还够买一桌就置灰，免得点了只收到报错
+    el.btnClaim.disabled = (you.account || 0) >= 1000;
+    // 轮到我时给一声轻提示（音效开着才有）：手机玩家不会一直盯着屏幕，
+    // 没有声音提醒的话 30 秒一到就被判超时弃牌 —— 那是最委屈的输法。
+    // 只在「从没轮到我 → 轮到我」的跳变时响一次，行动完/弃牌后标志复位。
+    if (you.act) {
+      if (!prevMyTurn) playTurnCue();
+      prevMyTurn = true;
+    } else {
+      prevMyTurn = false;
+    }
     // 牌局进行中落座要等下一手才发牌，不提示的话玩家会以为没坐上
     if (prevSeat !== null && prevSeat < 0 && you.seat >= 0 && room.status === 'playing') {
       UI.toast('已入座，从下一手开始参与');
@@ -343,13 +355,12 @@
         // 已入座或账号没钱时保持只读，避免误触；其余情况可点击坐下。
         // 槽位号 ≠ 服务端座位号（槽位是前端按「本人居中」重排的虚拟位置），
         // 所以落座由前端挑一个真实空位号，坐下后本人会自动落到槽位 0（底边正中）。
+        // 可坐的空位**常显「＋坐下」**：以前只在 hover 时才亮出来，触屏有
+        // hover:none 兜底、桌面端却什么都没有 —— 新用户第一眼根本不知道能点。
         const canSit = !seated && acc > 0;
         html += '<div class="seat empty' + (p.flip ? ' flip' : '') + (canSit ? ' can-sit' : '') + '" ' +
-          'data-slot="' + k + '"' + (canSit ? ' title="点击坐下 · 买入 ' + UI.fmt(buyAmt) + '"' : '') + ' ' + posStyle + '>' +
-          '<div class="info">' +
-            '<span class="empty-tag">空位</span>' +
-            (canSit ? '<span class="sit-tag">＋坐下</span>' : '') +
-          '</div>' +
+          'data-slot="' + k + '"' + (canSit ? ' title="坐下 · 买入 ' + UI.fmt(buyAmt) + '"' : '') + ' ' + posStyle + '>' +
+          '<div class="info"><span class="empty-tag">' + (canSit ? '＋ 坐下' : '空位') + '</span></div>' +
           '</div>';
         continue;
       }
@@ -450,6 +461,16 @@
     if (r.seq === lastAwardSeq) return;
     lastAwardSeq = r.seq;
     awardChips(r);
+    // 赢家提示：结算信息目前都在牌局记录里，赢了的人却没有任何直接反馈。
+    // 弹一条 toast —— 这是牌桌上唯一属于「我的时刻」，值得说一声。
+    const t = state.table;
+    if (t && t.you && t.you.seat >= 0) {
+      const mine = (r.seats || []).find(x => x.index === t.you.seat);
+      if (mine && mine.won > 0) {
+        const hand = (r.revealed || []).find(x => x.index === t.you.seat);
+        UI.toast('你赢得 ' + UI.fmt(mine.won) + (hand && hand.hand ? '（' + hand.hand.name + '）' : ''), 'win');
+      }
+    }
   }
 
   function awardChips(r) {
@@ -563,6 +584,16 @@
     const end = t0 + n * 0.07 + 0.06;
     tone(ctx, end, 523, 0.2, 'sine', 0.1);
     tone(ctx, end + 0.08, 784, 0.24, 'sine', 0.08);
+  }
+
+  /** 轮到我了：两声短促上行的「叮咚」。要轻 —— 牌桌上它会频繁出现，
+   *  比结算音更常听到，响了大就成了噪音。 */
+  function playTurnCue() {
+    const ctx = audio();
+    if (!ctx) return;
+    const t = ctx.currentTime + 0.02;
+    tone(ctx, t, 660, 0.09, 'sine', 0.06);
+    tone(ctx, t + 0.11, 880, 0.12, 'sine', 0.06);
   }
 
   function syncSoundBtn() {
@@ -734,6 +765,11 @@
     if (!muted) { const c = audio(); if (c) tone(c, c.currentTime + 0.02, 880, 0.12, 'sine', 0.07); }
   };
   syncSoundBtn();
+
+  /* 领取筹码：牌桌页也留一个入口 —— 余额打光的用户正坐在桌上，
+     若要他回大厅领完再摸回来，这一来一回多半就把人送走了。
+     规则与大厅一致（余额 <1000 才可领，每次 5000），服务端是权威。 */
+  el.btnClaim.onclick = () => Net.send({ type: 'claim' });
   el.btnRebuy.onclick = () => {
     const acc = state.table.you.account;
     UI.modal({

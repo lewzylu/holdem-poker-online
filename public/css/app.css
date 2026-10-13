@@ -214,6 +214,8 @@ button.mini {
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.err { border-color: var(--red); color: #ffb3ae; }
+/* 赢牌提示：金色，和「结算筹码飞向赢家」同一套高亮语言 */
+.toast.win { border-color: var(--gold); color: var(--gold); font-weight: 700; }
 
 /* ==================== 牌桌补充 ==================== */
 /* .layout 作为 body（flex 列）的主区，用 flex:1 吃满顶栏之外的全部高度，
