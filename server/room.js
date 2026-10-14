@@ -67,6 +67,7 @@ class Room {
     this.game = null;
     this.pending = null;
     this.lastResult = null;
+    this.allInEquity = null;             // 全下跑马时的等价表（座位号 → 胜率%）
     // 结算结果的单调递增序号：前端靠它判定「这是一次新的结算」。
     // 不能用 handCount 代替 —— 重开一局后手数从 1 重新数，会和上一局的第 1 手撞车，
     // 前端会误判成「已经播过」而漏掉结算动画。
@@ -362,9 +363,13 @@ class Room {
     this.pending = null;
     const cfg = {
       seats: this.seats.map(s => ({ name: s.name || '', type: 'human', chips: s.chips })),
-      smallBlind: this.sb, bigBlind: this.bb, aiDelay: 0
+      smallBlind: this.sb, bigBlind: this.bb, aiDelay: 0,
+      // 全下被跟住后的逐街停顿：牌已全亮，悬念全在剩下的公共牌里。
+      // 1.1s × 最多三条街 —— 练习房足够看清每张牌，也不至于拖节奏。
+      runoutDelay: 1100
     };
     this.game = new PokerEngine(cfg, this.hooks());
+    this.allInEquity = null;             // 上一局的等价表清掉，别闪到新一手
     this.pushLog('牌局开始 · 盲注 ' + this.sb + '/' + this.bb, 'system');
     this.broadcast();
     this.loop(epoch);
@@ -403,8 +408,9 @@ class Room {
     return {
       onLog: (text, kind) => self.pushLog(text, kind),
       onUpdate: () => self.broadcast(),
-      onDeal: () => self.broadcast(),
+      onDeal: () => { self.updateAllInEquity(); self.broadcast(); },
       onTurn: () => self.broadcast(),
+      onAllIn: () => self.onAllIn(),
       requestAction: (p, legal) => self.waitAction(p, legal),
       onHandEnd: (result) => self.onHandEnd(result)
     };
@@ -475,6 +481,64 @@ class Room {
     return { ok: true };
   }
 
+  /* ---------------- 全下摊牌：亮牌 + 等价（GG / PokerStars 的招牌时刻） ----------------
+   * 全下被跟住后双方牌立刻公开，剩下几条街逐张揭晓 —— 每条街都重算一次
+   * 「现在各自赢的机会」，让玩家直观感受等价是怎么随牌面变化的。 */
+  onAllIn() {
+    this.updateAllInEquity();
+    this.broadcast();
+  }
+
+  /** 重算当前等价表（座位号 → 胜率%）。只在引擎进入跑马态时有意义。
+   *  剩 ≤2 张公共牌时全枚举（≤990 组合，精确）；剩 3~5 张（翻牌前全下）时
+   *  组合数上百万、全枚举要十几秒，改蒙特卡洛 1.5 万次（误差 ±0.6%，实测 ~300ms）。
+   *  注意：样本空间是引擎剩余牌堆 —— 与真实发牌同一来源，等价是「真等价」。 */
+  updateAllInEquity() {
+    const g = this.game;
+    if (!g || !g.allInShowdown) return;
+    const players = g.seats.filter(s => s.inHand && !s.folded);
+    if (players.length < 2) { this.allInEquity = null; return; }
+    const need = 5 - g.board.length;
+    if (need <= 0) return;               // 河牌才全下：没有不确定性，等价就是输赢本身
+    const rest = g.deck;
+    const acc = players.map(() => 0);
+    let total = 0;
+    // 把一种「补完公共牌的可能」计进各家账上：赢家得 1，平分时各得 1/n
+    const score = combo => {
+      const full = g.board.concat(combo);
+      let max = null;
+      const scores = players.map(p => {
+        const ev = Cards.evaluate(p.hole.concat(full));
+        if (max === null || Cards.compareEval(ev, max) > 0) max = ev;
+        return ev;
+      });
+      let nWin = 0;
+      for (let i = 0; i < scores.length; i++) if (Cards.compareEval(scores[i], max) === 0) nWin++;
+      for (let i = 0; i < scores.length; i++) if (Cards.compareEval(scores[i], max) === 0) acc[i] += 1 / nWin;
+      total++;
+    };
+    if (need === 1) {
+      for (let i = 0; i < rest.length; i++) score([rest[i]]);
+    } else if (need === 2) {
+      for (let i = 0; i < rest.length; i++)
+        for (let j = i + 1; j < rest.length; j++) score([rest[i], rest[j]]);
+    } else {
+      const N = 15000;
+      for (let n = 0; n < N; n++) {
+        // 部分 Fisher-Yates：只洗前 need 张
+        const d = rest.slice();
+        for (let i = 0; i < need; i++) {
+          const j = i + Math.floor(Math.random() * (d.length - i));
+          const t = d[i]; d[i] = d[j]; d[j] = t;
+        }
+        score(d.slice(0, need));
+      }
+    }
+    const eq = {};
+    players.forEach((p, i) => { eq[p.index] = Math.round(acc[i] / total * 100); });
+    this.allInEquity = eq;
+  }
+
   async onHandEnd(result) {
     this.syncChips();
     this.botRefillNow();     // 赶在引擎判定「整局结束」之前把输光的机器人补上
@@ -485,6 +549,8 @@ class Room {
     });
     result.seq = ++this._resultSeq;
     this.lastResult = result;
+    // 摊牌态开始：等价标签下岗，牌型标签（.hand-tag）上岗 —— 两者同位，不能同屏
+    this.allInEquity = null;
     this.processLeaves();
     this.broadcast();
     // 摊牌停留久一点（看清各家牌），弃牌收池快一点
@@ -593,7 +659,9 @@ class Room {
     const seats = this.seats.map((s, i) => {
       const es = g ? g.seats[i] : null;
       const mine = s.name === name;
-      const reveal = !!es && (mine || (showdown && !es.folded && es.inHand));
+      // 跑马态（全下被跟、牌已公开）也算 reveal：等价表和「看戏」都靠它
+      const reveal = !!es && (mine || (showdown && !es.folded && es.inHand) ||
+        (g && g.allInShowdown && !es.folded && es.inHand));
       return {
         i,
         name: s.name,
@@ -617,6 +685,9 @@ class Room {
         leaveAfterHand: !!s.leaveAfterHand,
         hole: reveal ? es.hole : null,
         hand: (showdown && es && es.hand && !es.folded) ? es.hand.name : null,
+        // 全下跑马时的实时胜率%（跑马结束/非跑马态为 null，前端据此挂等价标签）
+        eq: (g && g.allInShowdown && this.allInEquity && es && es.inHand && !es.folded &&
+             this.allInEquity[i] !== undefined) ? this.allInEquity[i] : null,
         won: es ? es.won : 0
       };
     });

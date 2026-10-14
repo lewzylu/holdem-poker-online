@@ -6,6 +6,8 @@
  *   onTurn(player)           轮到某人
  *   requestAction(p, legal)  人类玩家决策，必须返回 Promise<action>
  *   onDeal(info)             发牌提示（用于动画）
+ *   onAllIn()                全下被跟住、进入跑马（此时双方牌应立刻亮出并算等价），
+ *                            之后每条街发牌前引擎会按 cfg.runoutDelay 停顿
  *   onHandEnd(result)        一手结束（含摊牌信息），返回值若非 undefined 会被 await
  *   onGameOver(winner)
  */
@@ -35,6 +37,7 @@
       blindUpHands: cfg.blindUpHands || 0,     // 每 N 手盲注翻倍，0 = 不递增
       difficulty: cfg.difficulty || 'standard', // tight / standard / aggro
       aiDelay: cfg.aiDelay === undefined ? 500 : cfg.aiDelay,
+      runoutDelay: cfg.runoutDelay === undefined ? 0 : cfg.runoutDelay, // 全下摊牌时每条街的停顿（悬念），0 = 关
       revealWinnerOnly: !!cfg.revealWinnerOnly
     };
     this.hooks = hooks || {};
@@ -72,6 +75,8 @@
     this.currentIdx = -1;
     this.finished = false;
     this.aborted = false;
+    this.allInShowdown = false;   // 本手进入「全下摊牌跑马」态（发 onAllIn 后置位，startHand 复位）
+    this.allInShown = false;     // 每手只发一次 onAllIn 的守护
     this.logs = [];
   }
 
@@ -276,6 +281,8 @@
     this.deck = Cards.shuffle(Cards.makeDeck());
     this.phase = 'preflop';
     this.settled = false;
+    this.allInShowdown = false;
+    this.allInShown = false;
 
     this.buttonIdx = this.nextSeatWithChips(this.buttonIdx);
     if (this.buttonIdx < 0) { this.finished = true; return null; }
@@ -303,10 +310,14 @@
     await this.bettingRound();
     if (this.aborted) return null;
     if (this.contenders().length <= 1) return await this.finishHand('fold');
+    await this.checkAllIn();
 
     // 翻牌 / 转牌 / 河牌
     var streets = [['flop', 3], ['turn', 1], ['river', 1]];
     for (var k = 0; k < streets.length; k++) {
+      // 全下跑马：每条街发牌前停顿 —— 牌已经全亮，悬念全在这几张里，
+      // 一口气发完等于把高潮剪掉。cfg.runoutDelay = 0 时退回旧行为。
+      if (this.allInShowdown && this.cfg.runoutDelay) await this.sleep(this.cfg.runoutDelay);
       this.phase = streets[k][0];
       for (var c = 0; c < streets[k][1]; c++) this.board.push(this.deck.pop());
       await this.emit('onDeal', { type: this.phase, cards: this.board.slice() });
@@ -317,9 +328,23 @@
       if (this.actableCount() >= 2) await this.bettingRound();
       if (this.aborted) return null;
       if (this.contenders().length <= 1) return await this.finishHand('fold');
+      await this.checkAllIn();
     }
 
     return await this.finishHand('showdown');
+  };
+
+  /* 全下被跟住：两人以上还在牌里、却没人能再行动（全下或弃牌）。
+   * 只在一手内触发一次：置 allInShowdown（给房间做亮牌 + 等价的信号），
+   * 之后的每条街由上面的 runoutDelay 放慢节奏。 */
+  PokerEngine.prototype.checkAllIn = async function () {
+    if (this.allInShown) return;
+    if (this.contenders().length < 2) return;
+    if (this.actableCount() >= 2) return;
+    this.allInShown = true;
+    this.allInShowdown = true;
+    this.log('全下摊牌 —— 亮牌！', 'system');
+    await this.emit('onAllIn');
   };
 
   PokerEngine.prototype.firstActorIndex = function () {

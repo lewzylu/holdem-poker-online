@@ -344,6 +344,10 @@
     const acc = you.account || 0;
     const buyAmt = Math.max(1, Math.min(state.room.buyIn, acc));
 
+    // 跑马等价的最大值（领跑方高亮用）
+    let maxEq = -1;
+    all.forEach(s => { if (s && s.eq != null && s.eq > maxEq) maxEq = s.eq; });
+
     let html = '';
     for (let k = 0; k < SLOT_COUNT; k++) {
       const s = bySlot[k];
@@ -426,6 +430,11 @@
       const handTag = s.hand
         ? '<div class="hand-tag' + (s.won > 0 ? ' won' : '') + '">' + UI.esc(s.hand) + '</div>'
         : '';
+      // 全下跑马等价：与 .hand-tag 同一个位置（两者从不同屏：跑马结束等价清空、
+      // 牌型上岗）。领跑的一方金色高亮 —— 跑马的看点就是「谁领先、牌面怎么翻」。
+      const eqTag = (s.eq != null)
+        ? '<div class="eq-tag' + (s.eq === maxEq ? ' lead' : '') + '">' + s.eq + '%</div>'
+        : '';
       html += '<div class="seat' + (p.flip ? ' flip' : '') + (s.folded ? ' folded' : '') +
         (isTurn ? ' turn' : '') + (isOut ? ' out' : '') + (mine ? ' mine' : '') +
         (isActing ? ' acting t-' + tier : '') + '" ' +
@@ -433,6 +442,7 @@
         (isActing ? ' data-tier="' + tier + '"' : '') + ' ' + posStyle + '>' +
         cards +
         handTag +
+        eqTag +
         '<div class="info">' +
           '<div class="avatar">' + UI.esc(s.name.slice(0, 1)) + '</div>' +
           '<div class="nm">' + UI.esc(s.name) + (mine ? '（我）' : '') + '</div>' +
@@ -673,6 +683,9 @@
       (L.toCall > 0
         ? ' · 需跟注 <b class="need-call">' + UI.fmt(L.toCall) + '</b>'
         : ' · <b class="can-check">可以过牌</b>') +
+      // 我的当前牌型：服务端翻牌后每条街都在算（stateFor 的 you.hand），
+      // 两家标杆平台（GG / PokerStars）都在行动区显示 —— 不用玩家自己在心里拼。
+      (you.hand ? ' · 你的牌 <b class="my-hand">' + UI.esc(you.hand) + '</b>' : '') +
       ' · 我的筹码 <b>' + UI.fmt(you.tableChips) + '</b>';
     startTimer();
   }
@@ -722,10 +735,16 @@
   el.btnAllin.onclick = () => submit({ type: 'allin' });
   el.btnRaise.onclick = () => submit({ type: 'raise', total: parseInt(el.slider.value, 10) });
   el.slider.oninput = updateRaiseLabel;
+  /* 快捷注额（1/2 池等）只把滑杆**拨到目标额**，不直接下注 ——
+   * 以前是点一下就把钱推进池，误触一下「1 池」就等于白送一个底池；
+   * 而且三个按钮紧挨着滑杆，手机上误触概率不低。
+   * 改成拨杆 + 更新加注按钮文案，确认永远走「加注」那一下（或 R/Enter）。
+   * 这是主流客户端（PokerStars / GGPoker）的标准做法：快捷键设额，确认键出牌。 */
   el.quick.onclick = e => {
     const b = e.target.closest('button');
     if (!b || b.disabled || !state.table.you.act) return;
-    submit({ type: 'raise', total: quickTarget(parseFloat(b.dataset.frac)) });
+    el.slider.value = quickTarget(parseFloat(b.dataset.frac));
+    updateRaiseLabel();
   };
   document.addEventListener('keydown', e => {
     if (!state || !state.table.you.act) return;

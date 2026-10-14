@@ -46,8 +46,11 @@ function wsClient() {
   });
 }
 
-/** 打开牌桌页，返回带探测结果的 DOM 摘要 */
-async function loadTable(token, ms = 4000) {
+/** 打开牌桌页，返回带探测结果的 DOM 摘要。
+ *  等待以「收到过房间状态」为准（prompt 不再是初始占位文案），最多 ~12 秒 ——
+ *  固定睡 4 秒在房间节奏慢（例如有人挂着超时）时会在状态到达前就采样，
+ *  曾经因此把 A 组误报成「无空位 + 领取可用」（读到的是还没渲染的初始 DOM）。 */
+async function loadTable(token, ms = 12000) {
   const vc = new VirtualConsole();
   const errs = [];
   vc.on('jsdomError', e => { if (!/navigation/i.test(e.message)) errs.push(e.message); });
@@ -60,9 +63,16 @@ async function loadTable(token, ms = 4000) {
       delete win.AudioContext; delete win.webkitAudioContext;
     }
   });
-  await sleep(ms);
+  const doc0 = dom.window.document;
+  const started = Date.now();
+  while (Date.now() - started < ms) {
+    const p = doc0.getElementById('prompt');
+    if (p && p.textContent && !/等待发牌/.test(p.textContent)) break;
+    await sleep(400);
+  }
   const doc = dom.window.document;
   const out = {
+    url: dom.window.location.pathname,
     claim: (() => {
       const b = doc.getElementById('btn-claim');
       return b ? { disabled: b.disabled, text: b.textContent } : null;
@@ -82,17 +92,24 @@ async function loadTable(token, ms = 4000) {
 async function freshAccount(tag) {
   const c = await wsClient();
   c.send({ type: 'register', name: 'ux' + tag + Math.floor(Math.random() * 1e5), password: 'test123456' });
-  await sleep(900);
+  await c.wait('auth', 8000);
   return c;
+}
+
+/** 入房并等到第一个房间状态再返回 —— 固定睡眠在房间节奏慢时会读到空的 lastState */
+async function joinAndSync(c) {
+  c.send({ type: 'joinRoom', roomId: 'PRACTICE1' });
+  await c.wait('state', 10000);
 }
 
 (async function () {
   console.log('[A] 新用户进练习房：空位常显「＋ 坐下」、领取置灰（余额 5000）');
   {
     const c = await freshAccount('a');
-    c.send({ type: 'joinRoom', roomId: 'PRACTICE1' });
-    await sleep(1200);
+    await joinAndSync(c);
     const p = await loadTable(c.token);
+    ok(p.url === '/table.html' && !/等待发牌/.test(p.prompt),
+      '页面收到房间状态（url=' + p.url + '，prompt=' + p.prompt.slice(0, 20) + '…）');
     ok(p.canSitSeats.length >= 3, '存在可坐空位（' + p.canSitSeats.length + ' 个）');
     ok(p.canSitSeats.every(t => /坐下/.test(t)),
       '可坐空位都常显「＋ 坐下」文案（' + JSON.stringify(p.canSitSeats.slice(0, 2)) + '）');
@@ -106,8 +123,8 @@ async function freshAccount(tag) {
     const c = await freshAccount('b');
     /* 练习房大盲 10，买入会被夹到上限 bb×200=2000 —— 一次坐下压不到 1000 以下，
        所以坐下 2000 再补给 2100，把账号压到 900。 */
-    c.send({ type: 'joinRoom', roomId: 'PRACTICE1' });
-    await sleep(1200);
+    await joinAndSync(c);
+    await sleep(500);                    // 等一拍，让 state 在 lastState 里站稳
     const st = c.lastState;
     const free = st.table.seats.find(s => !s.name);
     c.send({ type: 'sit', seat: free.i, amount: 2000 });
@@ -128,8 +145,7 @@ async function freshAccount(tag) {
   console.log('\n[C] 已入座：空位一律不可点（防误触）');
   {
     const c = await freshAccount('c');
-    c.send({ type: 'joinRoom', roomId: 'PRACTICE1' });
-    await sleep(1200);
+    await joinAndSync(c);
     const st = c.lastState;
     const free = st.table.seats.find(s => !s.name);
     c.send({ type: 'sit', seat: free.i, amount: 1000 });
@@ -145,8 +161,7 @@ async function freshAccount(tag) {
   console.log('\n[D] 轮到我：提示文案与无报错（jsdom 无 Web Audio，提示音应静默退化）');
   {
     const c = await freshAccount('d');
-    c.send({ type: 'joinRoom', roomId: 'PRACTICE1' });
-    await sleep(1200);
+    await joinAndSync(c);
     const st = c.lastState;
     const free = st.table.seats.find(s => !s.name);
     c.send({ type: 'sit', seat: free.i, amount: 1000 });
@@ -169,6 +184,25 @@ async function freshAccount(tag) {
     }
     ok(!!myTurn, '轮到我时提示含「轮到你了」（' + (myTurn || '未等到') + '）');
     ok(errs.length === 0, '提示音路径无 JS 错误（无 AudioContext 时静默退化）' + (errs.length ? '：' + errs[0] : ''));
+
+    /* E. 快捷注额只「拨杆」不下注：以前点一下 1/2 池就把钱直接推进池，
+       误触等于白送一个底池。现在必须按「加注」确认 —— 这条断言守住它不回归。 */
+    const q = dom.window.document.querySelectorAll('#quick button')[0];
+    if (q && !q.disabled) {
+      const before = dom.window.document.getElementById('raise-slider').value;
+      q.click();
+      await sleep(300);
+      const doc2 = dom.window.document;
+      const after = doc2.getElementById('raise-slider').value;
+      const stillMine = /轮到你了/.test(doc2.getElementById('prompt').textContent);
+      const raiseLabel = doc2.getElementById('btn-raise').textContent.trim().replace(/\s+/g, ' ');
+      ok(after !== before, '点快捷注额后滑杆被拨动（' + before + ' → ' + after + '）');
+      ok(stillMine, '快捷注额不再直接提交（仍轮到我，等确认）');
+      ok(/加注到|全下/.test(raiseLabel), '加注按钮文案随滑杆更新（' + raiseLabel + '）');
+    } else {
+      console.log('  （本手无可加注场景，跳过 E 组）');
+    }
+
     // 收尾：行动掉这一手并站起，把座位还给真人
     dom.window.eval('Net.send({type:"action",action:{type:"check"}})');
     await sleep(1500);
@@ -176,6 +210,71 @@ async function freshAccount(tag) {
     await sleep(800);
     dom.window.close();
     c.ws.close();
+  }
+
+  console.log('\n[F] 全下跑马：亮牌、等价%、逐街节奏、摊牌接管（GG / PokerStars 的招牌时刻）');
+  {
+    /* 自建私房打一手「全下被跟」：A 全下、B 跟注。
+       守的体验点：跑马时对手的牌必须亮（悬念的前提）、双方都要挂等价%、
+       合计 ≈100、逐街有节奏（一口气发完等于把高潮剪掉）、摊牌时等价让位牌型。 */
+    const mk = tag => new Promise((resolve, reject) => {
+      const ws = new WebSocket(BASE.replace(/^http/, 'ws') + '/ws');
+      const c = { tag, ws, name: null, token: null, roomId: null, last: null,
+        send(o) { if (ws.readyState === 1) ws.send(JSON.stringify(o)); } };
+      ws.on('message', d => {
+        let m; try { m = JSON.parse(d); } catch (e) { return; }
+        if (m.type === 'auth' && m.ok) { c.token = m.token; c.name = m.user.name; }
+        if (m.type === 'joined') c.roomId = m.roomId;
+        if (m.type === 'state') {
+          c.last = m;
+          const act = m.table && m.table.you ? m.table.you.act : null;
+          if (act) c.send({ type: 'action', action: tag === 'A' ? { type: 'allin' } : { type: 'call' } });
+        }
+      });
+      ws.on('open', () => resolve(c));
+      ws.on('error', reject);
+    });
+    const A = await mk('A'), B = await mk('B');
+    A.send({ type: 'register', name: 'fa' + Math.floor(Math.random() * 1e5), password: 'test123456' });
+    B.send({ type: 'register', name: 'fb' + Math.floor(Math.random() * 1e5), password: 'test123456' });
+    await sleep(1000);
+    A.send({ type: 'createRoom', title: '跑马测试', sb: 5, bb: 10, buyIn: 1000 });
+    await sleep(900);
+    B.send({ type: 'joinRoom', roomId: A.roomId });
+    await sleep(800);
+    A.send({ type: 'sit', seat: 0, amount: 1000 });
+    B.send({ type: 'sit', seat: 2, amount: 1000 });
+    await sleep(1200);
+    A.send({ type: 'start' });
+
+    let runout = null, showdown = null, tAllIn = 0, tShowdown = 0;
+    const begin = Date.now();
+    while (Date.now() - begin < 60000 && !showdown) {
+      await sleep(300);
+      const m = B.last;
+      if (!m || !m.table) continue;
+      const t = m.table;
+      const opp = t.seats.find(s => s.name === A.name);
+      const me = t.seats.find(s => s.name === B.name);
+      if (!runout && !m.result && opp && opp.hole && opp.eq != null) {
+        runout = { eq: { me: me.eq, opp: opp.eq } };
+        tAllIn = Date.now();
+      }
+      if (m.result) {
+        showdown = { hands: t.seats.filter(s => s.hand).map(s => s.hand), eqNow: t.seats.map(s => s.eq) };
+        tShowdown = Date.now();
+      }
+    }
+    ok(!!runout, '跑马时对手底牌已亮、等价已挂（' + (runout ? '我 ' + runout.eq.me + '% / 对手 ' + runout.eq.opp + '%' : '未见') + '）');
+    if (runout) ok(Math.abs(runout.eq.me + runout.eq.opp - 100) <= 2,
+      '等价合计 ≈ 100（实际 ' + (runout.eq.me + runout.eq.opp) + '）');
+    ok(!!showdown, '跑马结束进入摊牌（牌型 ' + (showdown ? showdown.hands.join('，') : '-') + '）');
+    if (showdown) {
+      ok(showdown.hands.length >= 2, '摊牌时双方都挂牌型标签');
+      ok(showdown.eqNow.every(e => e == null), '摊牌时等价标签已清空（牌型接管，两者同位不能同屏）');
+      ok(tShowdown - tAllIn >= 2200, '逐街节奏 ≥ 2.2s（实际 ' + ((tShowdown - tAllIn) / 1000).toFixed(1) + 's）');
+    }
+    A.ws.close(); B.ws.close();
   }
 
   console.log(fails === 0 ? '\n体验走查测试全部通过 ✅' : '\n' + fails + ' 项失败 ❌');

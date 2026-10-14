@@ -305,6 +305,22 @@
 /* 赢家：金色高亮，一眼看出这手是谁的 */
 .hand-tag.won { border-color: var(--gold); color: var(--gold); }
 
+/* ---- 全下跑马等价 ----
+ * 与 .hand-tag 同一位置（跑马结束等价清空、牌型上岗，从不同屏）。
+ * 领跑方金色、落后方中性灰 —— 跑马的看点就是「谁领先、牌面会不会翻」，
+ * 颜色比数字先到眼里。 */
+.eq-tag {
+  position: absolute; left: 50%; bottom: calc(100% + 50px);
+  transform: translateX(-50%);
+  padding: 0 7px; border-radius: 999px;
+  background: rgba(12, 18, 26, .95);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px; line-height: 1.4; font-weight: 700; white-space: nowrap;
+  pointer-events: none; z-index: 14;
+}
+.eq-tag.lead { border-color: var(--gold); color: var(--gold); }
+
 /* ---- 庄家按钮（Dealer Button）----
  * 全桌公开信息，所有座位都要看得见（所以没放进对手会被隐藏的 .sub）。
  * 仿真实赌场的白色筹码：径向高光的白盘 + 金边 + 一圈金色虚线 + 黑色粗 "D"，
@@ -576,6 +592,9 @@
   padding: 0 7px; border-radius: 999px; font-weight: 800;
 }
 .prompt b.can-check { color: var(--green); }
+/* 我的当前牌型：绿色与「可以过牌」同一语义（有利信息），
+   不用金色 —— 金色在牌桌里是钱（底池/下注/赢家），牌型不是钱 */
+.prompt b.my-hand { color: var(--green); }
 .buttons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 button.act {
