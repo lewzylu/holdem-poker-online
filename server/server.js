@@ -261,6 +261,10 @@ async function handle(ws, msg) {
     }
     case 'createRoom': {
       const a = requireAuth(ws); if (!a) return;
+      // 已在别的房间 → 先退再建（与 joinRoom 对齐）。不退的话旧房广播还会继续
+      // 发给本人，牌桌页后到的是旧房状态、直接盖掉新房间的 —— 新流程「开房即进桌」
+      // 尤其会被这个坑：进桌看到的是练习房而不是自己开的房。
+      if (a.roomId) leaveRoom(a.name, a);
       const id = newRoomId();
       const room = new Room(id, {
         host: a.name,
@@ -341,6 +345,9 @@ async function handle(ws, msg) {
     }
     case 'claim': {
       const a = requireAuth(ws); if (!a) return;
+      // 只允许在大厅领取：筹码充值入口统一收口（坐在桌上的人输光就走、
+      // 回大厅领了再来 —— 房内可领的话「桌上输光 → 秒补 → 继续推」没有休止符）。
+      if (a.roomId) return sendWs(ws, { type: 'error', msg: '房间内不能领取筹码，请返回大厅操作' });
       const r = db.claim(a.name);
       if (r.error) return sendWs(ws, { type: 'error', msg: r.error });
       // 回一条 me：各页面靠它把余额刷成最新（大厅顶栏就是读这条消息的 user.chips）

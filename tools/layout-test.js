@@ -419,9 +419,9 @@ async function loadTable(token, ms = 4000) {
   ok(dirty.length === 0, '空位不含昵称/筹码/底牌/下注额/反馈（异常 ' + dirty.length + ' 个）');
   ok(empties.every(s => s.seatIdx === null), '空位不携带 data-seat（不指向任何服务端座位）');
 
-  // 底牌尺寸一致
+  // 底牌尺寸一致（hl=摊牌高亮、deal=入场动画是状态类，不是尺寸类，归一化时剥掉）
   const withCards = occupied.filter(s => s.cardCls.length);
-  const clsSet = [...new Set(withCards.map(s => s.cardCls.map(c => c.replace(/\bback\b/, '').trim()).join('|')))];
+  const clsSet = [...new Set(withCards.map(s => s.cardCls.map(c => c.replace(/\b(back|hl|deal)\b/g, '').replace(/\s+/g, ' ').trim()).join('|')))];
   ok(withCards.length === 0 || clsSet.length === 1,
     '所有在座槽位的底牌用同一个尺寸 class（' + JSON.stringify(clsSet) + '）');
   ok(withCards.every(s => s.cardCls.every(c => /\bsmall\b/.test(c))), '底牌都是 .card.small');

@@ -607,6 +607,13 @@ class Room {
     // 只有「当前这一局」才有权收尾，否则会把新一局的引擎清成 null、状态重置回 waiting
     if (epoch !== this.epoch) return;
     this.status = 'waiting';
+    // 整局自然终止时，牌局中充进来的补给（pendingRebuy，已从账号真扣了款）结转到座位：
+    // 不结转的话这笔钱会挂在旧局残账上 —— 下一局 start() 用的是 s.chips，
+    // 钱不在里面（玩家被白扣）；而 showChips/displayChips 又一直把它显示出来，账面更糊。
+    // stop() 中止路径早已单独退回，这里只兜自然终止。
+    this.seats.forEach(s => {
+      if (s.pendingRebuy) { s.chips += s.pendingRebuy; s.pendingRebuy = 0; }
+    });
     this.game = null;
     this.pending = null;
     this.broadcast();

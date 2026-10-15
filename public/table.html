@@ -35,10 +35,12 @@
   </div>
   <div class="topbtns">
     <button id="btn-sound" class="ghost">音效 开</button>
-    <button id="btn-claim" class="ghost" title="余额不足 1000 时可领取 5000">领取</button>
     <button id="btn-panel" class="ghost panel-toggle">记录</button>
     <button id="btn-rebuy" class="ghost">补给</button>
     <button id="btn-stand" class="ghost">站起</button>
+    <!-- 房主专用（进桌后牌局进行中才显示）：结束作废本手、筹码退回。
+         大厅不再有房间内操作，这个控制得跟着房主走到牌桌上来。 -->
+    <button id="btn-stop" class="ghost danger" hidden>结束牌局</button>
     <button id="btn-lobby" class="ghost">返回大厅</button>
   </div>
 </header>
@@ -58,11 +60,21 @@
               <div class="blind-tag" id="blind">—</div>
             </div>
             <div class="board" id="board"></div>
-            <div class="waiting" id="waiting" hidden>牌局未开始，等待房主开局…</div>
+            <!-- 桌心底池筹码堆：把「底池多大」从读数字变成看图。JS 按 pot 金额生成。 -->
+            <div class="pot-stack" id="pot-stack" aria-hidden="true"></div>
+            <!-- 房主在等待阶段从这里开局；其他人看到的是等待文案 -->
+            <div class="waiting" id="waiting" hidden>
+              <span id="waiting-text">牌局未开始，等待房主开局…</span>
+              <button id="btn-start" class="primary" hidden>开始牌局</button>
+            </div>
           </div>
           <!-- 座位在 .felt 之外、直接挂在画布上：槽位坐标就是画布坐标，
                与桌面的位置和边框宽度完全解耦，侧边席位也才能骑在桌沿外侧。 -->
           <div class="seats" id="seats"></div>
+          <!-- 获胜横幅：结算展示期内桌面中央显示「谁 以 什么牌型 赢了多少」。
+               与 #seats 平级（不随座位重建，否则每次广播入场动画都会重启）；
+               内容由 table.js 按 state.result 渲染，result 清空即随之退场。 -->
+          <div class="win-banner" id="win-banner" aria-hidden="true"></div>
           <!-- 结算动画层：底池筹码飞向赢家。与 #seats 同坐标系（一样铺满画布），
                但必须独立 —— #seats 每次广播都整块重建 innerHTML，动画放里面会被冲掉。 -->
           <div class="fx" id="fx" aria-hidden="true"></div>
@@ -72,6 +84,12 @@
 
     <div class="action-bar" id="action-bar">
       <div class="prompt" id="prompt">等待发牌…</div>
+      <!-- 预选动作（GG / PokerStars 标配）：轮不到我时把这一手的动作先选好，
+           轮到我的一瞬间自动执行。见 table.js 的预选一节。 -->
+      <div class="pre-actions" id="pre-actions" hidden>
+        <button id="pre-checkfold" title="能过牌就过牌，有人下注则弃牌">轮到我时 过牌/弃牌</button>
+        <button id="pre-callany" title="轮到我时自动跟注任意金额">轮到我时 跟注任意</button>
+      </div>
       <div class="buttons">
         <button id="btn-fold" class="act fold" disabled><span class="lbl">弃牌</span> <kbd>F</kbd></button>
         <button id="btn-call" class="act call" disabled><span class="lbl">跟注</span> <kbd>C</kbd></button>

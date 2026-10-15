@@ -94,6 +94,73 @@
  * 这也是侧边席位能骑在桌沿外侧的前提。 */
 .seats { position: absolute; inset: 0; }
 
+/* ---- 获胜横幅（GG / PokerStars 的结算横幅）----
+ * 结算展示期内桌面中央显示「谁 以 什么牌型 赢了多少」—— 弃牌收池时赢家
+ * 在桌面上原本完全不可见（没有摊牌、没有牌型标签），这行横幅是那一手
+ * 唯一的桌面级结论。位置在顶部信息条（下沿约 35%）与公共牌（上沿约 45%）
+ * 之间的空档，视觉上属于桌面而不属于任何人的座位。
+ *
+ * 显隐：.show 控制（内容为空时退场 → opacity 过渡自然淡出）。空元素
+ * absolute + pointer-events:none，退场后不占任何交互。
+ * 位置：公共牌**下方**（画布 y≈396）。上方那条缝看着也能放，但
+ * .table-top 的 top:30% 是 .felt 内百分比（画布 y 220~280），横幅挂画布
+ * 40% 会正好撞上信息条（visual-check 实测抓到）；下方与 board 底（364）、
+ * 底边座位的牌顶（433）各留 20px 以上，是唯一两边都不挤的位置。
+ * ⚠️ 改动位置须重跑 visual-check 的横幅几何断言。 */
+.win-banner {
+  position: absolute; left: 50%; top: 66%;
+  transform: translate(-50%, -50%);
+  max-width: 560px; padding: 5px 18px;
+  border-radius: 999px; white-space: nowrap;
+  background: rgba(10, 16, 24, .92);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-size: 15px; font-weight: 800; letter-spacing: .02em;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .55);
+  opacity: 0; pointer-events: none; z-index: 15;
+  transition: opacity .25s ease-in;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.win-banner.show {
+  opacity: 1;
+  transition: opacity .18s ease-out;
+  animation: banner-in .3s cubic-bezier(.2, .75, .3, 1.2);
+}
+/* 我赢：金色底、深色字 —— 与对手赢的「描金边」拉开一档（GG 的 You Win 高亮） */
+.win-banner.mine {
+  background: linear-gradient(180deg, #ffd977, var(--gold));
+  color: #2b1a00;
+  border-color: rgba(0, 0, 0, .3);
+}
+@keyframes banner-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.85); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* ---- 桌心底池筹码堆 ----
+ * 底池只有数字时「多大」全靠读；一簇筹码把规模感还给眼睛（GG 桌心同款）。
+ * 位置：公共牌左侧的空桌面（.felt 内坐标；board 左缘 felt 内约 x=323，
+ * 堆占 250~296，留 27px 余量，不重叠）。
+ * 枚数/配色由 JS 按 pot 金额生成（0/3/5/7 枚），纯装饰浮层：
+ * pointer-events:none、不参与任何布局与防重叠计算。
+ * ⚠️ 与 .win-banner 一样，改动位置须重跑 visual-check 的几何断言。 */
+.pot-stack {
+  position: absolute; left: 250px; top: 50%;
+  transform: translateY(-50%);
+  width: 46px; height: 40px;
+  pointer-events: none; z-index: 3;
+}
+.pot-stack i {
+  position: absolute; left: 0; width: 40px; height: 11px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, .4);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .45);
+}
+/* 三档面额色：金（主）、红（高）、紫（大额点缀）——与结算飞行筹码同语言 */
+.pot-stack i.c-gold { background: radial-gradient(ellipse at 40% 30%, #ffe9ae, #e8b33c 70%, #b98316); }
+.pot-stack i.c-red  { background: radial-gradient(ellipse at 40% 30%, #ff8a82, #d0392e 70%, #7e1710); }
+.pot-stack i.c-purple { background: radial-gradient(ellipse at 40% 30%, #c9b3ff, #8a63e8 70%, #4d2b96); }
+
 /* ---- 结算动画层 ----
  * 与 #seats 同坐标系（同样是铺满画布的 absolute inset:0），但必须独立成层：
  * #seats 每次广播都整块重建 innerHTML，动画元素放进去会被下一次状态刷新冲掉。
@@ -391,6 +458,9 @@
   font-variant-numeric: tabular-nums;
   pointer-events: none; z-index: 8;
 }
+/* 最后 5 秒的节奏脉冲（t-critical，与操作条倒计时同一套动画语言；t-urgent 是 8 秒
+   颜色档、不带脉冲）。行动结束 .acting 类被移除，脉冲随之停止。 */
+.seat.acting.t-critical .seat-sec { animation: timer-pulse 1s ease-in-out infinite; }
 
 /* ---- 动作反馈浮层 ----
  * absolute + pointer-events:none：完全脱离布局流。
@@ -579,6 +649,38 @@
     inset 0 0 0 2px rgba(255, 255, 255, .9);   /* 迷你牌小，白边比大牌薄一档 */
 }
 
+/* ---- 新翻开的公共牌：错峰入场 ----
+ * delay 由 JS 按着「本街第几张」写（翻牌三张连着翻，转牌河牌单独翻）。
+ * only 公共牌用：它们没有基础 transform；底牌的入场在 .hole 上（见下）。 */
+.card.deal { animation: card-in .34s cubic-bezier(.18, .75, .3, 1.15) backwards; }
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(-16px) scale(.9); }
+}
+
+/* ---- 摊牌：构成赢家最佳五张的牌描金框 ----
+ * GG 的招牌可读性设计：摊牌时桌面上七八张牌，玩家的眼睛不需要
+ * 自己去比对哪些牌构成了那手「两对」—— 五张金框直接跳出来。
+ * best 五张来自服务端结算结果（hand.best），前端只做集合匹配。 */
+.card.hl {
+  box-shadow:
+    0 0 0 2px #ffd977,
+    0 0 16px rgba(255, 217, 119, .6),
+    0 1px 1px rgba(0, 0, 0, .32);
+}
+
+/* ---- 新一手的底牌：整组淡入 ----
+ * 动画放在容器 .hole 而不是 .card 上 —— .card 的 transform 已被扇形
+ *（rotate ±6deg）占用，放牌上会在入场瞬间覆盖 rotate、两张牌变回并排。
+ * 错峰 delay 由 JS 按「服务端座位号 × 70ms」写在 .hole 上。 */
+.hole.deal { animation: hole-in .3s ease-out backwards; }
+@keyframes hole-in { from { opacity: 0; } }
+
+/* ---- 底池跳变：数字弹一拍 ----
+ * 底池绝大多数变化都是「钱进来了」，一个 scale 脉冲比纯数字切换
+ * 更先被余光捕获。由 JS 在 pot 增大时挂 class（bump），动画结束自动停在原样。 */
+.pot.bump { animation: pot-bump .32s ease-out; }
+@keyframes pot-bump { 35% { transform: scale(1.16); } }
+
 /* ==================== 操作条 ==================== */
 .action-bar {
   margin-top: 10px; padding: 8px 12px; border-radius: 12px;
@@ -595,7 +697,26 @@
 /* 我的当前牌型：绿色与「可以过牌」同一语义（有利信息），
    不用金色 —— 金色在牌桌里是钱（底池/下注/赢家），牌型不是钱 */
 .prompt b.my-hand { color: var(--green); }
+/* 底池赔率（跟注额 / 底池+跟注）：中性蓝 —— 它既不是钱也不是牌，
+   是给决策用的参考数，不该用金/绿参与那两套语义 */
+.prompt b.odds { color: var(--blue); font-weight: 700; }
 .buttons { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ---- 预选动作 ----
+ * 轮不到我时把这一手的动作选好，轮到的一瞬间自动执行。
+ * 做成细胶囊勾选态（.on 金色），别做成和主按钮一样大的实心按钮 ——
+ * 预选是「备选」，视觉权重必须低于「弃牌/跟注/加注」那排。 */
+.pre-actions { display: flex; gap: 6px; margin: 0 0 6px; }
+.pre-actions button {
+  padding: 3px 10px; border-radius: 999px; font-size: 11px;
+  border: 1px solid var(--line); background: transparent; color: var(--muted);
+  cursor: pointer; white-space: nowrap;
+}
+.pre-actions button:hover:not(.on) { border-color: var(--gold); color: var(--gold); }
+.pre-actions button.on {
+  border-color: var(--gold); color: var(--gold);
+  background: rgba(240, 180, 41, .14); font-weight: 700;
+}
 
 button.act {
   min-width: 82px; padding: 9px 14px; border-radius: 9px;

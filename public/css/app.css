@@ -60,6 +60,15 @@ button.ghost {
 button.ghost:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
 button.ghost:disabled { opacity: .35; cursor: not-allowed; }
 button.ghost.danger:hover { border-color: var(--red); color: var(--red); }
+/* 补给按钮的「桌上已打光」态：金色描边 + 呼吸 —— 0 筹码的人不会进下一手，
+   这一刻的补给按钮是牌桌上唯一重要的事，不能淹没在顶栏一排灰按钮里 */
+button.ghost.need {
+  border-color: var(--gold); color: var(--gold); font-weight: 700;
+  animation: ghost-need 1.6s ease-in-out infinite;
+}
+@keyframes ghost-need {
+  50% { box-shadow: 0 0 10px rgba(240, 180, 41, .35); }
+}
 button.mini {
   float: right; background: transparent; border: 1px solid var(--line); color: var(--muted);
   font-size: 11px; padding: 3px 8px; border-radius: 6px;
@@ -148,6 +157,14 @@ button.mini {
 .rid { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--gold); letter-spacing: 2px; font-size: 13px; }
 .ri-sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .ri-sub .live { color: var(--green); font-style: normal; }
+/* 「进入 ›」角标：点房间卡即进桌 —— 卡片本身可点就够了，
+   角标是把可点性说出来的那一行字（触屏没有 hover 悬停提示）。 */
+.room-item { position: relative; padding-right: 64px; }
+.ri-go {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--gold); font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.room-item:hover .ri-go { color: #ffd977; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 .form-grid label { display: block; color: var(--muted); font-size: 12px; }
 .form-grid label:first-child { grid-column: 1 / -1; }
@@ -163,21 +180,6 @@ button.mini {
 }
 .room-meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
 .room-meta b { color: var(--txt); }
-
-.seat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
-.lseat {
-  border: 1px dashed var(--line); border-radius: 10px; padding: 10px 6px; text-align: center;
-  background: #0e1420; cursor: pointer; transition: border-color .15s, transform .08s;
-}
-.lseat:hover { border-color: var(--blue); }
-.lseat:active { transform: translateY(1px); }
-.lseat.taken { border-style: solid; cursor: default; }
-.lseat.taken:hover { border-color: var(--line); }
-.lseat.mine { border-color: var(--gold); background: rgba(240,180,41,.08); }
-.ls-no { color: var(--muted); font-size: 11px; }
-.ls-name { font-size: 13px; font-weight: 700; margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ls-name i { color: var(--red); font-style: normal; font-size: 11px; }
-.ls-chips { color: var(--gold); font-size: 12px; font-variant-numeric: tabular-nums; }
 .ops { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* ==================== 聊天 ==================== */
@@ -336,7 +338,7 @@ button.mini {
 .seat.mine .avatar { border-color: var(--gold); }
 
 /* 触摸端基础优化 */
-button, .room-item, .lseat, .seat, #raise-slider {
+button, .room-item, .seat, #raise-slider {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
@@ -510,7 +512,14 @@ button, .room-item, .lseat, .seat, #raise-slider {
   position: absolute; left: 50%; top: 62%; transform: translateX(-50%);
   color: #cfeee0; font-size: 13px; background: rgba(0,0,0,.35);
   padding: 6px 16px; border-radius: 999px;
+  display: flex; align-items: center; gap: 10px; white-space: nowrap;
 }
+/* 房主的「开始牌局」：等待阶段唯一该被点的按钮，放在等待浮层里 */
+.waiting #btn-start { padding: 4px 14px; font-size: 13px; }
+/* display:flex/其他 display 值会盖过 hidden 属性的 UA display:none ——
+   全局兜底（真实踩到：预选条/等待浮层/倒计时条都因此常驻显示过）。
+   任何「用 hidden 控制显隐」的元素从此免受作者 display 覆盖。 */
+[hidden] { display: none !important; }
 /* ---- 行动倒计时 ----
  * 以前只有一条 130x8px 的进度条、没有任何数字，玩家只能靠目测比例反推还剩几秒。
  * 剩余毫秒本来就算出来了，这里把它显示成整秒。
@@ -518,6 +527,12 @@ button, .room-item, .lseat, .seat, #raise-slider {
 .timer {
   display: flex; align-items: center; gap: 7px;
   align-self: center;
+}
+/* 最后 5 秒的节奏脉冲：与每秒滴答声同拍，视觉上「跳到最后」。
+   t-urgent 是 8 秒告警档，5 秒档独立成 t-critical（spec：最后 5 秒声学+视觉）。 */
+.timer.t-critical { animation: timer-pulse 1s ease-in-out infinite; }
+@keyframes timer-pulse {
+  50% { transform: scale(1.1); }
 }
 .timer-sec {
   min-width: 2.2em; text-align: right;

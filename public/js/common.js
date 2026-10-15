@@ -1,6 +1,17 @@
 /* common.js —— 各页共用的小工具：格式化、牌面渲染、弹窗、吐司 */
 window.UI = (function () {
-  function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  /* 金额格式化：桌面的速读格式。
+   * ≥10,000 缩写为 K（一位小数、去尾零）：40,601 → 40.6K —— 五位数只出现在
+   * 长时间赢家手里，此时「规模感」比「精确到个位」更有用（GG 同样高位才缩写）；
+   * 四位数及以下维持千分位。需要精确值的场景（侧栏明细、需跟注额、滑杆）不走 fmt。 */
+  function fmt(n) {
+    n = Number(n) || 0;
+    if (n >= 10000) {
+      const k = Math.round(n / 100) / 10;
+      return (k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)) + 'K';
+    }
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

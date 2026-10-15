@@ -1,4 +1,6 @@
-/* lobby.js —— 大厅：房间列表、开房/加入、座位与买入、聊天 */
+/* lobby.js —— 大厅：房间列表、开房/加入、聊天。
+ * 大厅不承载任何牌局内操作（选座/买入/补给都在牌桌页，房主开局也在牌桌页），
+ * 只负责「看房间 → 进房间」：点房间卡 = 加入 = 直接跳牌桌。 */
 (function () {
   const $ = s => document.querySelector(s);
   const el = {
@@ -8,7 +10,7 @@
     cTitle: $('#c-title'), cSb: $('#c-sb'), cBb: $('#c-bb'), cBuy: $('#c-buyin'),
     create: $('#create'), joinId: $('#join-id'), join: $('#join'),
     roomTitle: $('#room-title'), roomMeta: $('#room-meta'),
-    seats: $('#seats'), ops: $('#room-ops'),
+    ops: $('#room-ops'),
     chat: $('#chat'), chatText: $('#chat-text'), chatSend: $('#chat-send')
   };
 
@@ -35,17 +37,23 @@
   });
 
   /* 领取筹码：余额低于门槛才让点，免得点了只收到一句「够用了」。
-     门槛 1000 与 db.js 的 CLAIM_MIN 一致（服务端才是权威，这里只是让按钮别白点）。 */
+     门槛 1000 与 db.js 的 CLAIM_MIN 一致（服务端才是权威，这里只是让按钮别白点）。
+     领取只发生在大厅 —— 房间内服务端会直接拒绝（规则收口）。 */
   const CLAIM_MIN = 1000;
   function syncClaim(chips) {
     const enough = (chips || 0) >= CLAIM_MIN;
     el.claim.disabled = enough;
-    el.claim.title = enough ? '余额充足，无需领取' : '余额不足 ' + CLAIM_MIN + '，可领取 5000';
+    el.claim.title = enough ? '余额充足，无需领取' : '余额不足 ' + CLAIM_MIN + '，可领取 2000';
   }
   el.claim.onclick = () => Net.send({ type: 'claim' });
   Net.on('needLogin', goLogin);          // 无 token 或续期失败
   Net.on('auth', m => { if (!m.ok) goLogin(); });
-  Net.on('joined', () => sessionStorage.removeItem('poker_no_auto'));  // 重新进房允许自动进桌
+  /* 加入成功 = 直接进牌桌。大厅不再有任何房间内操作（选座/买入/补给都在牌桌页），
+   * 房间的开局控制也移到了牌桌页的等待浮层 —— 大厅只负责「看房间 → 进房间」。 */
+  Net.on('joined', () => {
+    sessionStorage.removeItem('poker_no_auto');   // 主动进房，允许牌局进行中自动落桌
+    location.href = 'table.html';
+  });
   el.logout.onclick = () => Net.logout();
 
   /* ---------- 房间列表 ---------- */
@@ -65,6 +73,7 @@
       '<div class="ri-sub">盲注 ' + r.sb + '/' + r.bb +
       ' · ' + r.seated + ' 人入座 · ' + r.people + ' 人在房间' +
       (r.status === 'playing' ? ' · <i class="live">进行中</i>' : '') + '</div>' +
+      '<span class="ri-go">进入 ›</span>' +
       '</div>').join('');
   }
   el.list.onclick = e => {
@@ -96,39 +105,20 @@
     if (!state || !state.room) {
       el.roomTitle.textContent = '未加入房间';
       el.roomMeta.textContent = '';
-      el.seats.innerHTML = '<div class="empty">从左边选一个房间，或者自己开一个</div>';
-      el.ops.innerHTML = '';
+      el.ops.innerHTML = '<div class="empty">从左边选一个房间，或者自己开一个</div>';
       return;
     }
-    const room = state.room, table = state.table, you = table.you;
+    const room = state.room;
     el.roomTitle.textContent = room.title + '（' + room.id + '）';
     el.roomMeta.innerHTML =
       '房主 <b>' + UI.esc(room.host || '—') + '</b> · 盲注 <b>' + room.sb + '/' + room.bb + '</b>' +
       ' · 状态 <b>' + (room.status === 'playing' ? '进行中 第' + room.handCount + '手' : '等待开始') + '</b>' +
       ' · 在线 ' + room.members.filter(m => m.online).length + '/' + room.members.length;
 
-    el.seats.innerHTML = table.seats.map(s => {
-      const mine = s.name && s.name === myName;
-      const cls = ['lseat', s.name ? 'taken' : 'free', mine ? 'mine' : ''].join(' ');
-      return '<div class="' + cls + '" data-seat="' + s.i + '">' +
-        '<div class="ls-no">' + (s.i + 1) + '</div>' +
-        '<div class="ls-name">' + (s.name ? UI.esc(s.name) + (s.connected ? '' : ' <i>掉线</i>') : '空位') + '</div>' +
-        '<div class="ls-chips">' + (s.name ? UI.fmt(s.chips) : '—') + '</div>' +
-        '</div>';
-    }).join('');
-
-    const seated = you.seat >= 0;
     const isHost = room.host === myName;
     let ops = '';
-    if (isHost) {
-      ops += room.status === 'playing'
-        ? '<button class="ghost" data-op="stop">结束牌局</button>'
-        : '<button class="primary" data-op="start">开始牌局</button>';
-    }
-    if (seated) {
-      ops += '<button class="ghost" data-op="stand">站起结算</button>';
-      ops += '<button class="ghost" data-op="rebuy">补给筹码</button>';
-    }
+    // 房主的开局控制：房间还空着时从这里开（进桌后等待浮层里也有同一入口）
+    if (isHost && room.status !== 'playing') ops += '<button class="primary" data-op="start">开始牌局</button>';
     ops += '<button class="ghost" data-op="table">进入牌桌</button>';
     ops += '<button class="ghost danger" data-op="leave">离开房间</button>';
     el.ops.innerHTML = ops;
@@ -140,25 +130,6 @@
     }
   }
 
-  el.seats.onclick = e => {
-    const d = e.target.closest('.lseat');
-    if (!d || !state) return;
-    const seat = parseInt(d.dataset.seat, 10);
-    const s = state.table.seats[seat];
-    if (s.name === myName) return doOp('stand');
-    if (s.name) return;
-    const acc = state.table.you.account;
-    UI.modal({
-      title: '坐下 · ' + (seat + 1) + ' 号位',
-      label: '买入筹码（账号余额 ' + UI.fmt(acc) + '）',
-      value: Math.min(state.room.buyIn, acc),
-      min: 100, max: Math.min(5000, acc),
-      tip: '上限 ' + UI.fmt(Math.min(5000, acc)) + '，最低 100',
-      okText: '坐下',
-      onOk: v => Net.send({ type: 'sit', seat, amount: v })
-    });
-  };
-
   el.ops.onclick = e => {
     const b = e.target.closest('[data-op]');
     if (b) doOp(b.dataset.op);
@@ -168,16 +139,6 @@
     if (op === 'table') return location.href = 'table.html';
     if (op === 'leave') return Net.send({ type: 'leaveRoom' });
     if (op === 'start') return Net.send({ type: 'start' });
-    if (op === 'stop') return Net.send({ type: 'stop' });
-    if (op === 'stand') return Net.send({ type: 'stand' });
-    if (op === 'rebuy') {
-      const acc = state.table.you.account;
-      return UI.modal({
-        title: '补给筹码', label: '补给到桌上（账号余额 ' + UI.fmt(acc) + '）',
-        value: Math.min(state.room.buyIn, acc), min: 100, max: Math.min(5000, acc),
-        okText: '补给', onOk: v => Net.send({ type: 'rebuy', amount: v })
-      });
-    }
   }
 
   /* ---------- 聊天 ---------- */

@@ -34,7 +34,7 @@ function ab(args, quiet) {
 }
 
 // 在页面里量一圈几何信息，返回 JSON。注意：agent-browser 的 eval 只接受单行 JS
-const PROBE = "(()=>{const q=s=>document.querySelector(s);const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:+b.x.toFixed(1),y:+b.y.toFixed(1),w:+b.width.toFixed(1),h:+b.height.toFixed(1),r:+b.right.toFixed(1),bt:+b.bottom.toFixed(1)};};const cv=q('.table-canvas');const ts=cv?(parseFloat(getComputedStyle(cv).getPropertyValue('--tscale'))||1):0;const seats=[...document.querySelectorAll('#seats .seat')].map(e=>{const h=e.querySelector('.hole');const fl=e.querySelector('.act-flash');const cs=e.querySelectorAll('.hole .card');let cardGap=null,rankGap=null;if(cs.length>1){const a=cs[0].getBoundingClientRect(),b=cs[1].getBoundingClientRect();cardGap=+(a.right-b.left).toFixed(1);const rk=cs[0].querySelector('.rank');if(rk)rankGap=+(b.left-rk.getBoundingClientRect().right).toFixed(1);}return Object.assign({mine:e.classList.contains('mine'),empty:e.classList.contains('empty'),slot:+e.dataset.slot,flip:e.classList.contains('flip'),hole:rect(h),parts:[...e.querySelectorAll('.info > .avatar, .info > .nm, .info > .chips')].map(rect),flash:rect(fl),cardGap:cardGap,rankGap:rankGap},rect(e));});const acts=[...document.querySelectorAll('button.act')].map(e=>Object.assign({t:e.textContent.trim().slice(0,4)},rect(e)));const rh=q('.rotate-hint');const rr=q('.rot-root');const ft=q('.table-fit');const sd=q('.side');const bd=q('.board');const hs=getComputedStyle(document.documentElement);const bs=getComputedStyle(document.body);return JSON.stringify({vw:innerWidth,vh:innerHeight,sw:document.documentElement.scrollWidth,sh:document.documentElement.scrollHeight,ts:ts,fit:rect(ft),fitLayout:ft?{w:ft.offsetWidth,h:ft.offsetHeight}:null,canvas:rect(cv),bar:rect(q('.action-bar')),felt:rect(q('.felt')),seats:seats,acts:acts,myCard:rect(q('.seat.mine .hole .card')),opCard:rect(q('.seat:not(.mine):not(.empty) .hole .card')),top:rect(q('.table-top')),board:rect(bd),boardN:bd?bd.querySelectorAll('.card').length:0,rotate:rh?getComputedStyle(rh).display:'none',rotRoot:rr?getComputedStyle(rr).display:'none',rotXform:rr?(getComputedStyle(rr).transform!=='none'):false,fitDisp:ft?getComputedStyle(ft).display:'none',sideDisp:sd?getComputedStyle(sd).display:'none',htmlBg:hs.backgroundColor,bodyBg:bs.backgroundColor});})()";
+const PROBE = "(()=>{const q=s=>document.querySelector(s);const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:+b.x.toFixed(1),y:+b.y.toFixed(1),w:+b.width.toFixed(1),h:+b.height.toFixed(1),r:+b.right.toFixed(1),bt:+b.bottom.toFixed(1)};};const cv=q('.table-canvas');const ts=cv?(parseFloat(getComputedStyle(cv).getPropertyValue('--tscale'))||1):0;const seats=[...document.querySelectorAll('#seats .seat')].map(e=>{const h=e.querySelector('.hole');const fl=e.querySelector('.act-flash');const cs=e.querySelectorAll('.hole .card');let cardGap=null,rankGap=null;if(cs.length>1){const a=cs[0].getBoundingClientRect(),b=cs[1].getBoundingClientRect();cardGap=+(a.right-b.left).toFixed(1);const rk=cs[0].querySelector('.rank');if(rk)rankGap=+(b.left-rk.getBoundingClientRect().right).toFixed(1);}return Object.assign({mine:e.classList.contains('mine'),empty:e.classList.contains('empty'),slot:+e.dataset.slot,flip:e.classList.contains('flip'),hole:rect(h),parts:[...e.querySelectorAll('.info > .avatar, .info > .nm, .info > .chips')].map(rect),flash:rect(fl),cardGap:cardGap,rankGap:rankGap},rect(e));});const acts=[...document.querySelectorAll('button.act')].map(e=>Object.assign({t:e.textContent.trim().slice(0,4)},rect(e)));const rh=q('.rotate-hint');const rr=q('.rot-root');const ft=q('.table-fit');const sd=q('.side');const bd=q('.board');const ps=q('.pot-stack');const wb=q('.win-banner.show');const hs=getComputedStyle(document.documentElement);const bs=getComputedStyle(document.body);return JSON.stringify({vw:innerWidth,vh:innerHeight,sw:document.documentElement.scrollWidth,sh:document.documentElement.scrollHeight,ts:ts,fit:rect(ft),fitLayout:ft?{w:ft.offsetWidth,h:ft.offsetHeight}:null,canvas:rect(cv),bar:rect(q('.action-bar')),felt:rect(q('.felt')),seats:seats,acts:acts,myCard:rect(q('.seat.mine .hole .card')),opCard:rect(q('.seat:not(.mine):not(.empty) .hole .card')),top:rect(q('.table-top')),board:rect(bd),boardN:bd?bd.querySelectorAll('.card').length:0,winBanner:rect(wb),potStack:rect(ps),stackN:ps?ps.children.length:0,rotate:rh?getComputedStyle(rh).display:'none',rotRoot:rr?getComputedStyle(rr).display:'none',rotXform:rr?(getComputedStyle(rr).transform!=='none'):false,fitDisp:ft?getComputedStyle(ft).display:'none',sideDisp:sd?getComputedStyle(sd).display:'none',htmlBg:hs.backgroundColor,bodyBg:bs.backgroundColor});})()";
 
 const DEVICES = [
   { name: '桌面 1440×900', w: 1440, h: 900, portrait: false },
@@ -53,6 +53,18 @@ let fails = 0;
 function ok(c, m) { if (c) console.log('    ✓ ' + m); else { fails++; console.log('    ✗ ' + m); } }
 
 console.log('在真实 Chromium 中量取固定画布的缩放（共 ' + DEVICES.length + ' 种视口）\n');
+
+/* 结算横幅只在结算展示期出现（4~9s 窗口）：先等一手结束抓到横幅再开量，
+ * 保证横幅几何断言至少能在一个视口上执行。练习房机器人节奏一手 10~30s。 */
+console.log('等待结算横幅出现（结算展示期，最多 60s）…');
+let bannerReady = false;
+for (let w = 0; w < 60; w++) {
+  const r = ab('eval "document.querySelector(\'.win-banner\').classList.contains(\'show\')"', true);
+  if (r && /true/.test(r)) { bannerReady = true; break; }
+  execSync('sleep 1');
+}
+console.log(bannerReady ? '  · 横幅已出现，开始测量\n' : '  · 未等到横幅（横幅断言将按“存在即校验”执行）\n');
+let sawBanner = 0, sawStack = 0;
 
 for (const d of DEVICES) {
   console.log('[' + d.name + ']');
@@ -173,18 +185,17 @@ for (const d of DEVICES) {
   }
 
   // 7c. 底牌与动作反馈必须分处座位卡两侧，且不互相重叠。
-  //     牌朝桌心，所以「另一侧」随 .flip 翻转：下半部槽位牌在上、反馈在下；
-  //     上半部槽位牌在下、反馈在上。废除按人数降级后反馈永远是文字、
-  //     没有退化成圆点的退路，一旦重叠就是长期遮挡底牌。
+  //     现行设计（见 table.css 的 .hole / .act-flash 注释）：**所有**座位一律
+  //     牌在卡片上方、反馈在卡片下方（~20px），不再按 .flip 翻边 ——
+  //     废除按人数降级后反馈永远是文字、没有退化成圆点的退路，
+  //     一旦重叠就是长期遮挡底牌。
   const bothSides = g.seats.filter(s => s.hole && s.flash);
   if (bothSides.length) {
     const clash = bothSides.filter(s => hit(s.hole, s.flash));
     ok(clash.length === 0, '底牌与动作反馈不重叠（同时存在的 ' + bothSides.length +
       ' 个座位中冲突 ' + clash.length + ' 个）');
-    const wrongDown = bothSides.filter(s => !s.flip && !(s.hole.bt <= s.flash.y + 1));
-    ok(wrongDown.length === 0, '下半部槽位的底牌在反馈上方（异常 ' + wrongDown.length + ' 个）');
-    const wrongUp = bothSides.filter(s => s.flip && !(s.flash.bt <= s.hole.y + 1));
-    ok(wrongUp.length === 0, '上半部槽位的反馈在底牌上方（异常 ' + wrongUp.length + ' 个）');
+    const wrongSide = bothSides.filter(s => !(s.hole.bt <= s.flash.y + 1));
+    ok(wrongSide.length === 0, '反馈一律在底牌下方（牌上、反馈下，异常 ' + wrongSide.length + ' 个）');
   } else {
     console.log('    · 当前没有座位同时持牌并显示反馈，跳过分侧断言');
   }
@@ -212,6 +223,25 @@ for (const d of DEVICES) {
       ' 个座位共 ' + withInfo.reduce((n, s) => n + s.parts.length, 0) + ' 个内容元素，冲突 ' +
       press + ' 处' + (press ? '，最深 ' + (worst / g.ts).toFixed(1) + 'px' : '') + '）');
   }
+  // 7e2. 结算横幅与底池筹码堆（结算横幅 / 桌心筹码图形）：只在其出现的视口上校验 ——
+  //      横幅只在 4~9s 的结算展示期内存在，脚本开头已等过一次；
+  //      聚合断言（至少观测到一次）在循环外。
+  if (g.winBanner) {
+    sawBanner++;
+    const bSeatHit = g.seats.filter(s => hit(g.winBanner, s));
+    ok(bSeatHit.length === 0, '获胜横幅不压任何座位' +
+      (bSeatHit.length ? '（压住 ' + bSeatHit.length + ' 个）' : ''));
+    if (g.boardN > 0) ok(!hit(g.winBanner, g.board), '获胜横幅不遮公共牌');
+    ok(!hit(g.winBanner, g.top), '获胜横幅不压顶部信息条');
+  }
+  if (g.stackN > 0 && g.potStack) {
+    sawStack++;
+    if (g.boardN > 0) ok(!hit(g.potStack, g.board), '底池筹码堆不遮公共牌');
+    ok(!hit(g.potStack, g.top), '底池筹码堆不压顶部信息条');
+    ok(g.potStack.y >= g.canvas.y - 1 && g.potStack.bt <= g.canvas.bt + 1,
+      '筹码堆在画布内');
+  }
+
   // 7e. 两张底牌是叠压的，但下层那张的读数不能被上层压掉。
   //     叠压量 14px 已经贴着「点数居中排版」的极限，下层牌的内容靠 translateX 左移避让；
   //     一旦避让失效，「10」这类两位数点数会被直接切掉。
@@ -292,6 +322,12 @@ for (const d of DEVICES) {
 /* 复位到横屏再退出：DEVICES 的最后一档是竖屏，跑完若把会话留在竖屏，
  * 牌桌是 display:none 的，接着跑 render-check 会量到一堆 0（真实踩到过）。 */
 ab('set viewport 1440 900', true);
+
+/* 聚合断言：横幅与筹码堆是结算展示期/任意有底池时刻的桌面元素，
+ * 整轮测量（9 视口 × 若干秒）里必须至少各被观测到一次 ——
+ * 否则说明它们从未渲染（回归）或等待逻辑失效。 */
+ok(sawStack >= 1, '底池筹码堆至少在一个视口出现（实测 ' + sawStack + ' 次）');
+if (bannerReady) ok(sawBanner >= 1, '获胜横幅至少在一个视口被量到（实测 ' + sawBanner + ' 次）');
 
 console.log(fails === 0 ? '固定画布缩放检查全部通过 ✅' : fails + ' 项失败 ❌');
 process.exit(fails === 0 ? 0 : 1);
