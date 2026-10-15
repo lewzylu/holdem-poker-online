@@ -119,28 +119,19 @@ async function joinAndSync(c) {
     c.ws.close();
   }
 
-  console.log('\n[B] 领取规则：房内拒绝、金额 2000（大厅专属）');
+  console.log('\n[B] 领取规则：房内拒绝、随时可领 2000（大厅专属）');
   {
     const c = await freshAccount('b');
-    /* 练习房大盲 10，买入会被夹到上限 bb×200=2000 —— 一次坐下压不到 1000 以下，
-       所以坐下 2000 再补给 2100，把账号压到 900（低于领取门槛）。 */
     await joinAndSync(c);
     await sleep(500);                    // 等一拍，让 state 在 lastState 里站稳
-    const st = c.lastState;
-    const free = st.table.seats.find(s => !s.name);
-    c.send({ type: 'sit', seat: free.i, amount: 2000 });
-    await sleep(1500);
-    c.send({ type: 'rebuy', amount: 2100 });
-    await sleep(1200);
-    // 房间内领取：服务端必须拒绝（规则收口 —— 在房可领就没有休止符）
+    // 房间内领取：服务端必须拒绝（规则收口 —— 在房可领就没有休止符）。
+    // 门槛已废除（随时可领），无需构造低余额前置。
     c.send({ type: 'claim' });
     const refused = await c.wait('error', 5000).catch(() => null);
     ok(!!refused && /大厅/.test(refused.msg),
       '房间内领取被拒绝并指路大厅（' + (refused ? refused.msg : '未收到 error') + '）');
-    // 离房后领取：成功且金额 2000 —— 站起/离房会把桌上筹码退回账号，
-    // 余额必然回到门槛之上，ws 场景构造不出来。金额与门槛语义改为进程内
-    // 直测 db（独立数据文件：db 是单进程内存快照，跨进程改共享文件会被
-    // 运行中服务的下一次 save() 覆盖回去，必须完全隔离）。
+    // 金额与无门槛语义进程内直测 db（独立数据文件：db 是单进程内存快照，
+    // 跨进程改共享文件会被运行中服务的下一次 save() 覆盖回去，必须完全隔离）。
     const fs = require('fs');
     const unitDb = '/tmp/poker-unit-claim.json';
     try { fs.unlinkSync(unitDb); } catch (e) { /* 首跑无文件 */ }
@@ -154,11 +145,10 @@ async function joinAndSync(c) {
     const r1 = db.claim('claim_t_low');
     ok(!!r1.ok && r1.amount === 2000 && r1.chips === 2500,
       '余额 500 可领取，到账 2500（' + JSON.stringify(r1) + '）');
-    db.ensureBot('claim_t_ok', 1500);
-    const r2 = db.claim('claim_t_ok');
-    ok(!!r2.error, '余额充足（≥1000）拒绝领取（' + (r2.error || '竟领成功了') + '）');
-    c.send({ type: 'stand' });
-    await sleep(600);
+    db.ensureBot('claim_t_rich', 1500);
+    const r2 = db.claim('claim_t_rich');
+    ok(!!r2.ok && r2.chips === 3500,
+      '不设门槛：余额充足（1500）同样可领（到账 3500）');
     c.ws.close();
   }
 

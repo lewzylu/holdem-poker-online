@@ -215,18 +215,15 @@ function addChips(name, delta) {
   return true;
 }
 
-/* 筹码领取：账号余额见底时的自助入口（仅大厅，房内禁止）。
- * 没有支付系统，所以做成「余额低于 CLAIM_MIN 才能领」的免费补给 ——
- * 若不限门槛，无限领取会让筹码彻底失去意义（输赢都无所谓了，牌局也就散了）。
- * 门槛取 1000（房间默认买入）：余额还够买一桌就不给领，见底了才补。
- * 金额 2000：两桌买入的量，够东山再起但不足以无限躺平。 */
+/* 筹码领取：账号余额的随时自助补给（仅大厅，房内禁止）。
+ * 没有支付系统，做成免费的固定金额补给，单次 2000（两桌买入的量）。
+ * 不设门槛：玩家随时可领（产品决策 —— 门槛置灰在手机上看不到原因，
+ * 「死按钮」的困惑比无限领取的副作用更伤体验）；上限由单次金额自然约束。 */
 const CLAIM_AMOUNT = 2000;
-const CLAIM_MIN = 1000;
 
 function claim(name) {
   const u = db.users[key(name)];
   if (!u) return { error: '账号不存在' };
-  if (u.chips >= CLAIM_MIN) return { error: '余额还有 ' + u.chips + '，够用了' };
   u.chips += CLAIM_AMOUNT;
   save();
   return { ok: true, amount: CLAIM_AMOUNT, chips: u.chips };
@@ -280,8 +277,8 @@ seedDefaults();
 
 module.exports = {
   START_CHIPS, MIN_BUYIN, MAX_BUYIN, SESSION_TTL, BOT_BANKROLL,
+  CLAIM_AMOUNT,
   register, login, logout, userByToken, publicUser, getUser,
   addChips, recordHand, leaderboard, ensureBot, claim,
-  CLAIM_AMOUNT, CLAIM_MIN,
   _db: db, _save: save
 };

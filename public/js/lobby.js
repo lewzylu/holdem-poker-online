@@ -32,18 +32,17 @@
     myName = m.user.name;
     el.meName.textContent = myName;
     el.meChips.textContent = UI.fmt(m.user.chips);
-    syncClaim(m.user.chips);
+    syncClaim();
     Net.send({ type: 'listRooms' });
   });
 
-  /* 领取筹码：余额低于门槛才让点，免得点了只收到一句「够用了」。
-     门槛 1000 与 db.js 的 CLAIM_MIN 一致（服务端才是权威，这里只是让按钮别白点）。
+  /* 领取筹码：随时可领，单次 2000 —— 不设门槛（置灰在手机上没有 hover 提示，
+     「为什么点不了」的困惑比无限领取的副作用更伤体验）。
+     服务端是权威（房内拒绝、金额），这里只管亮着。
      领取只发生在大厅 —— 房间内服务端会直接拒绝（规则收口）。 */
-  const CLAIM_MIN = 1000;
   function syncClaim(chips) {
-    const enough = (chips || 0) >= CLAIM_MIN;
-    el.claim.disabled = enough;
-    el.claim.title = enough ? '余额充足，无需领取' : '余额不足 ' + CLAIM_MIN + '，可领取 2000';
+    el.claim.disabled = false;
+    el.claim.title = '领取 2000 筹码到账号（随时可领，房间内不可）';
   }
   el.claim.onclick = () => Net.send({ type: 'claim' });
   Net.on('needLogin', goLogin);          // 无 token 或续期失败
