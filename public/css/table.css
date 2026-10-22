@@ -64,30 +64,37 @@
 }
 
 /* 顶部信息条（阶段 / 底池 / 盲注），app.css 会压成一行胶囊。
- * 相对画布定位在桌面上半部：顶边正中刻意不放槽位，就是留给它的。
- * ⚠️ 这个 top 与 .board 的 top 是一对，改动必须重跑 visual-check。 */
+ * 定位在画布坐标（table-top 已移到 .felt 外、挂在画布上）：
+ * top 220px = 桌布顶（100px）+ 桌布高的 30%——与旧版 felt 内 30% 等效。
+ * 顶边正中刻意不放槽位，就是留给它的。
+ * ⚠️ 这个 top 与 .board 的位置是一对，改动必须重跑 visual-check。 */
 .table-top {
-  position: absolute; left: 50%; top: 30%;
+  position: absolute; left: 50%; top: 220px;
   transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   pointer-events: none;
 }
 .phase-tag, .pot, .blind-tag { white-space: nowrap; }
 .phase-tag {
-  padding: 2px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+  padding: 2px 12px; border-radius: 999px; font-size: 14px; font-weight: 700;
   background: rgba(255, 255, 255, .12); color: var(--txt);
 }
 .pot { display: flex; align-items: baseline; gap: 5px; color: var(--gold); }
-.pot .label { font-size: 11px; }
-.pot b { font-size: 22px; font-variant-numeric: tabular-nums; }
-.blind-tag { font-size: 11px; color: var(--txt); }
+.pot .label { font-size: 13px; }
+.pot b { font-size: 28px; font-variant-numeric: tabular-nums; }
+.blind-tag { font-size: 12px; color: var(--txt); }
 
-/* 公共牌：桌面正中，只渲染已发出的牌 */
+/* 公共牌：五个位置固定（GG 同款）—— 容器恒为 5 个子元素（已发的牌 + 透明
+ * 占位），已发的牌永远钉在各自的槽位上，转牌/河牌落下时不挪动它们。
+ * preflop 无牌时整个容器由 .board:not(.has-cards) 收起（见 app.css）。 */
 .board {
   position: absolute; left: 50%; top: 50%;
   transform: translate(-50%, -50%);
   display: flex; gap: 6px; pointer-events: none;
 }
+/* 未发出位置的几何锚点：与 .card 同尺寸撑住槽位，完全透明、无边框 ——
+   不是「空牌」的视觉占位（那套方案曾因视觉脏被移除），只是定位用的占位盒 */
+.bslot { width: 46px; height: 64px; flex-shrink: 0; }
 
 /* 座位容器铺满整块画布（不是 .felt 的内容区）——
  * 槽位坐标直接是画布坐标，与 .felt 的位置和边框宽度完全解耦。
@@ -107,20 +114,29 @@
  * 40% 会正好撞上信息条（visual-check 实测抓到）；下方与 board 底（364）、
  * 底边座位的牌顶（433）各留 20px 以上，是唯一两边都不挤的位置。
  * ⚠️ 改动位置须重跑 visual-check 的横幅几何断言。 */
+/* top 66%（fit 高的中心定位）：落在公共牌底与底席手牌顶之间的空带，
+   桌面档本就不压牌 —— 矮/竖屏的遮挡在 app.css 变形档另行处理 */
 .win-banner {
   position: absolute; left: 50%; top: 66%;
   transform: translate(-50%, -50%);
-  max-width: 560px; padding: 5px 18px;
-  border-radius: 999px; white-space: nowrap;
+  max-width: min(560px, 92vw); padding: 5px 12px;
+  border-radius: 14px;
   background: rgba(10, 16, 24, .92);
   border: 1px solid var(--gold);
   color: var(--gold);
-  font-size: 15px; font-weight: 800; letter-spacing: .02em;
+  font-size: 16px; font-weight: 800; letter-spacing: .02em;
   box-shadow: 0 6px 22px rgba(0, 0, 0, .55);
   opacity: 0; pointer-events: none; z-index: 15;
   transition: opacity .25s ease-in;
-  overflow: hidden; text-overflow: ellipsis;
+  display: flex; flex-direction: column; gap: 3px; align-items: stretch;
 }
+/* 结算行：主池/边池各一行（边池结算曾挤成一根长胶囊、超屏截断）。
+   每行独立截断，长名字不会把别的赢家挤出屏幕 */
+.win-banner .wb-row {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: center; padding: 1px 6px;
+}
+.win-banner .wb-side { font-size: 14px; opacity: .92; }
 .win-banner.show {
   opacity: 1;
   transition: opacity .18s ease-out;
@@ -268,6 +284,14 @@
   pointer-events: none; z-index: 1;
 }
 
+/* 本人手牌（.big 58×80）压卡 peek 取 23：比例与对手一致（23/80 ≈ 22/67）。
+ * 上限受 .info 内容区约束：56 - peek 必须放得下两行文字（13+15px、
+ * 行高 1.15 ≈ 32.2px）—— peek 26 时只剩 30px，文字顶进牌区 2.1px
+ * （visual-check 实测抓到）；23 时 33px 留 0.8px 余量。
+ * 探出量 80-23=57（对手 45），槽位 0 上方到顶边座位有 ~290px 垂直空间，
+ * 防重叠无虞。 */
+.seat.mine { --hole-peek: 23px; }
+
 /* 两张牌**叠压** 8px：像捏在手里的一副手牌，而不是摊开的两张卡。
  *
  * 为什么是 8px：牌面回到「点数居中」之后（见牌面一节），下层牌的居中数字会伸进
@@ -290,19 +314,19 @@
  * （索引本来就在露出的那一角，叠压余量从 11.8px 涨到 20.2px）；花色改用 SVG、
  * 去掉右下角暗纹后后者也一并移除。 */
 
-/* 头像 + 昵称 + 筹码合成一行：所有人共用这一套结构，本人与对手不再有两套尺寸表。
- * overflow:hidden 是必需的：中文昵称 + 五位数筹码会超出 140px 的卡片，
- * 没有它就会溢出到卡片外面（改造中真实踩到过）。
+/* 头像左 + 两行文字右（昵称上、筹码下）：GG 同款结构。
+ * 一行「头像+昵称+筹码」在 140px 卡里放不下 14px 的中文昵称与大额筹码 ——
+ * 大额筹码胶囊会吞掉昵称区，昵称被 ellipsis 挤成「机 …」（截图走查踩到）。
+ * 两行结构里昵称与筹码各占整行宽度，互不抢地。
+ * overflow:hidden 是必需的：没有它长昵称会溢出到卡片外面。
  * position+z-index 让内容盖在底牌之上，保证任何时候都可读。
  *
- * 内容**不是垂直居中，而是给牌区让位**：牌压住卡片顶部 22px，而 30px 的头像
- * 居中时占 13~43，昵称文字占 21~35 —— 都会伸进牌区，昵称顶部会被牌面衬着，
- * 白牌上的白字对比度很差（z-index 保证画在上面，所以是观感问题不是可读性问题）。
- * 用 padding 把内容推到牌区之外，剩下 34px 刚好放下 30px 的头像。
- * 牌统一在卡片上方，所以让位的 padding 也统一在上边 —— 不再有「上半部让下边」的变体。 */
+ * 内容**不是垂直居中，而是给牌区让位**：牌压住卡片顶部 22px，
+ * padding 把内容推到牌区之外，剩下 34px 放头像 26px + 两行 13px 文字。
+ * 牌统一在卡片上方，所以让位的 padding 也统一在上边。 */
 .info {
   position: relative; z-index: 3;
-  display: flex; align-items: center; justify-content: center; gap: 5px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 6px;
   width: 100%; height: 100%; min-width: 0; overflow: hidden;
   padding-top: var(--hole-peek);
 }
@@ -311,30 +335,40 @@
 
 .avatar {
   display: flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; font-size: 14px;
+  width: 26px; height: 26px; font-size: 13px;
   border-radius: 50%; border: 2px solid var(--line);
   background: #0e1420; color: var(--txt);
   font-weight: 700; overflow: hidden; flex-shrink: 0;
 }
-.nm {
+.itxt {
   flex: 1 1 auto; min-width: 0;
-  font-weight: 700; text-align: left; font-size: 12px;
+  display: flex; flex-direction: column; gap: 0;
+  /* 两行（昵称 13 + 筹码 15）总高 13×1.15+15×1.15 ≈ 32px，卡内容区只有
+     34px（56 - 牌压顶 22），行高再松就会顶进牌区 */
+  line-height: 1.15;
+}
+.nm {
+  font-weight: 700; text-align: left; font-size: 13px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* 筹码数量是座位上最重要的数字，比昵称再大半档；仅这一行放大
+   仍留在卡片内（长金额由 ellipsis 兜底，不会伸出玩家区域） */
 .chips {
-  padding: 1px 6px; border-radius: 999px; font-size: 12px;
-  background: rgba(0, 0, 0, .45); color: var(--gold);
-  font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap;
-  flex-shrink: 0;
+  font-size: 15px; color: var(--gold);
+  font-weight: 700; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* 下注额：一律挂在卡片右下 —— 牌统一移到卡片上方之后，右下角是空着的，
    不再需要「上半部翻到右上」那一套变体。
- * 做成醒目的金色筹码胶囊（前缀一枚 ● 像一叠筹码），比原来的暗底小字明显得多，
- * 一眼能看出「谁下了多少」。全下时转成红色高亮。 */
+ * 做成醒目的金色筹码胶囊（前缀一枚 ● 像一叠筹码），16px 是重要信息里
+ * 最大的一档。胶囊锚定 right，向卡内生长：最长的「1,234」（约 76px）
+ * 也远小于卡宽 140，不会伸出玩家区域；卡下方的动作文字已去金额（见
+ * table.js 的 shortAction），两行不再水平打架。
+ * 全下时转成红色高亮。 */
 .bet {
   position: absolute; right: -6px; bottom: -10px;
   display: flex; align-items: center; gap: 3px;
-  padding: 2px 8px; border-radius: 999px; font-size: 13px;
+  padding: 2px 8px; border-radius: 999px; font-size: 16px;
   background: linear-gradient(180deg, #ffd977, var(--gold));
   border: 1px solid rgba(0, 0, 0, .25);
   color: #3b2600; font-weight: 800; white-space: nowrap;
@@ -366,7 +400,7 @@
   background: rgba(12, 18, 26, .95);
   border: 1px solid var(--line);
   color: var(--txt);
-  font-size: 10px; line-height: 1.4; font-weight: 700; white-space: nowrap;
+  font-size: 11px; line-height: 1.4; font-weight: 700; white-space: nowrap;
   pointer-events: none; z-index: 14;
 }
 /* 赢家：金色高亮，一眼看出这手是谁的 */
@@ -383,7 +417,7 @@
   background: rgba(12, 18, 26, .95);
   border: 1px solid var(--line);
   color: var(--muted);
-  font-size: 10px; line-height: 1.4; font-weight: 700; white-space: nowrap;
+  font-size: 11px; line-height: 1.4; font-weight: 700; white-space: nowrap;
   pointer-events: none; z-index: 14;
 }
 .eq-tag.lead { border-color: var(--gold); color: var(--gold); }
@@ -426,20 +460,23 @@
 .badge {
   padding: 0 6px; border-radius: 999px;
   background: rgba(255, 255, 255, .12); color: var(--txt);
-  font-weight: 700; font-size: 11px; white-space: nowrap;
+  font-weight: 700; font-size: 12px; white-space: nowrap;
 }
 .badge.sb, .badge.bb { background: rgba(74, 158, 255, .85); color: #04121f; }
 .badge.allin { background: rgba(255, 95, 86, .9); color: #2b0705; }
 .badge.hand { background: rgba(46, 204, 113, .85); color: #04240f; }
 /* 机器人座位：紫色，避开小盲/大盲的蓝、全下的红、牌型的绿，不与牌局语义撞色 */
 .badge.bot { background: rgba(178, 138, 255, .9); color: #170a2b; }
+/* 我的当前牌型：绿色（与「可以过牌」同一有利语义），挂在本人座位的徽章区 ——
+   GG 的牌型就显示在座位上，行动条只留决策必需 */
+.badge.my-hand { background: rgba(46, 204, 113, .9); color: #04240f; }
 
 /* 「行动中 / 上一步动作」贴在卡片下方左侧：不参与布局（否则座位会随状态变高），
  * 也不和右下角的下注额抢位置（max-width 92 + 左对齐，够不到 .bet 的左边界）。
  * 牌统一在卡片上方，所以这行小字统一贴卡片下方 —— 不再按座位方位翻边。 */
 .last, .thinking {
   position: absolute; top: calc(100% + 2px); left: 4px;
-  max-width: 92px; font-size: 12px;
+  max-width: 100px; font-size: 13px;
   color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   pointer-events: none;
 }
@@ -454,7 +491,7 @@
   border-radius: 999px;
   background: #0e1420; border: 1.5px solid var(--green);
   color: var(--green);
-  font-size: 11px; font-weight: 800; line-height: 15px; text-align: center;
+  font-size: 13px; font-weight: 800; line-height: 18px; text-align: center;
   font-variant-numeric: tabular-nums;
   pointer-events: none; z-index: 8;
 }
@@ -475,12 +512,12 @@
   position: absolute; left: 50%; top: calc(100% + 20px);
   transform: translateX(-50%);
   display: flex; align-items: center; gap: 3px;
-  max-width: 160px; padding: 2px 8px;
+  max-width: 170px; padding: 2px 8px;
   border-radius: 999px; white-space: nowrap;
   background: rgba(12, 18, 26, .95);
   border: 1px solid var(--gold);
   color: var(--gold);
-  font-size: 12px; font-weight: 700;
+  font-size: 13px; font-weight: 700;
   box-shadow: 0 4px 14px rgba(0, 0, 0, .5);
   pointer-events: none; z-index: 12;
   animation: af-in .18s ease-out;
@@ -630,12 +667,20 @@
     inset 0 0 0 3px rgba(255, 255, 255, .92);    /* 白边 */
 }
 
-/* 座位里的底牌：所有人一个尺寸。本人明牌与对手牌背用的都是这一条规则，
- * 「谁的牌」靠朝向和座位高亮区分，不靠大小 —— 以前自己的牌是对手的两倍宽。
+/* 座位里的底牌：对手之间等大（48×67）；本人的牌为对手的 1.2 倍（58×80，
+ * GG 式放大 —— 全屏唯一需要读清点数的牌）。旧约定"所有人等大"已由
+ * table-gg-immersive-layout 变更按用户决策废除，layout/visual-test 的
+ * 等大断言同步改写为「对手等大 × 1.2」。
  *
- * 这是**最需要看清**的一档：48×67 的逻辑尺寸在桌面视口下实显只有 43px 宽，
+ * 对手牌仍是最常见的一档：48×67 的逻辑尺寸在桌面视口下实显 ~43px 宽，
  * 索引字号要给足，不能只按比例缩。 */
 .card.small { width: 48px; height: 67px; border-radius: 5px; }
+/* 本人手牌 1.2x：58×80、点数 37px（two-char 30px）。
+ * 「谁的牌」仍然一半靠朝向、一半靠尺寸 —— 对手是牌背、本人是放大的明牌，
+ * 不会再像旧版"两倍宽"那样像渲染坏了。 */
+.card.small.big { width: 58px; height: 80px; border-radius: 6px; }
+.card.small.big .rank { font-size: 37px; }
+.card.small.big .rank.two-char { font-size: 30px; }
 
 /* 迷你牌（22×31）：同一套语言的缩小版 —— 底色、剪影、居中点数都保留，
  * 只把字号收到能读的下限，并去掉投影（这么小的字再加投影只会糊）。 */
@@ -686,7 +731,7 @@
   margin-top: 10px; padding: 8px 12px; border-radius: 12px;
   background: var(--bg2); border: 1px solid var(--line);
 }
-.prompt { color: var(--muted); font-size: 12px; margin-bottom: 6px; min-height: 16px; }
+.prompt { color: var(--muted); font-size: 14px; margin-bottom: 6px; min-height: 19px; }
 .prompt b { color: var(--txt); font-variant-numeric: tabular-nums; }
 /* 需跟注的金额：金色高亮，是这一行里最该被一眼看到的数字 */
 .prompt b.need-call {
@@ -708,7 +753,7 @@
  * 预选是「备选」，视觉权重必须低于「弃牌/跟注/加注」那排。 */
 .pre-actions { display: flex; gap: 6px; margin: 0 0 6px; }
 .pre-actions button {
-  padding: 3px 10px; border-radius: 999px; font-size: 11px;
+  padding: 3px 10px; border-radius: 999px; font-size: 12px;
   border: 1px solid var(--line); background: transparent; color: var(--muted);
   cursor: pointer; white-space: nowrap;
 }
@@ -729,6 +774,17 @@ button.act.fold { border-color: rgba(255, 95, 86, .5); color: #ff8f88; }
 button.act.call { border-color: rgba(46, 204, 113, .5); color: #6ee7a8; }
 button.act.raise { border-color: rgba(240, 180, 41, .5); color: var(--gold); }
 button.act.allin { border-color: rgba(167, 139, 250, .5); color: #c4b5fd; }
+/* 盲注圆标（小/大）：贴头像左上角 —— 曾在右上角与「你的牌」并排盖住手牌 */
+.pos-tag {
+  position: absolute; top: -7px; left: -7px; min-width: 16px; height: 16px;
+  border-radius: 8px; font-size: 10px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 3px; z-index: 10; pointer-events: none;
+}
+.pos-tag.sb { background: rgba(46, 204, 113, .92); color: #04240f; }
+.pos-tag.bb { background: rgba(240, 180, 41, .92); color: #3b2600; }
+/* 名牌下方常驻的「你的牌 X」：绿色与 can-check 同语义（有利信息） */
+.last.hand-live { color: var(--green); }
 button.act kbd {
   margin-left: 5px; padding: 0 4px; border-radius: 4px;
   background: rgba(255, 255, 255, .08); color: var(--muted);
@@ -742,7 +798,7 @@ button.act kbd {
 .quick button {
   flex: 1; padding: 3px 6px; border-radius: 6px;
   border: 1px solid var(--line); background: transparent; color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 .quick button:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
 .quick button:disabled { opacity: .3; cursor: not-allowed; }

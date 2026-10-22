@@ -14,7 +14,7 @@
     btnFold: $('#btn-fold'), btnCall: $('#btn-call'), btnRaise: $('#btn-raise'),
     btnAllin: $('#btn-allin'), slider: $('#raise-slider'), quick: $('#quick'),
     timer: $('#timer'), timerBar: $('#timer-bar'), timerSec: $('#timer-sec'),
-    score: $('#score'), log: $('#log'), chat: $('#chat'),
+    log: $('#log'), chat: $('#chat'),
     chatText: $('#chat-text'), chatSend: $('#chat-send'),
     preActions: $('#pre-actions'), preCF: $('#pre-checkfold'), preCA: $('#pre-callany'),
     waitingText: $('#waiting-text'), btnStart: $('#btn-start'), btnStop: $('#btn-stop'),
@@ -51,9 +51,10 @@
   const TIER_WARN = 11000;
   const TIER_URGENT = 8000;
 
-  /** 服务端下发的超时时长；拿不到就退回本地常量 */
+  /** 服务端下发的超时时长；拿不到就退回本地常量。0 = 本房间不限制 */
   function actionTimeout() {
     const t = state && state.table ? state.table.actTimeout : 0;
+    if (t === 0) return 0;                    // 不限制：调用方据此隐藏倒计时
     return t > 0 ? t : ACTION_TIMEOUT;
   }
   /** 剩余毫秒，已夹在 [0, timeout]，不会出现负值 */
@@ -235,7 +236,8 @@
     // 阶段/手数、房间号/盲注都放在牌桌内部标签里：手机横屏会隐藏顶栏信息条，这里必须自给自足
     el.phase.textContent = (room.status === 'playing' ? (t.phaseName || '准备') : '等待开局') +
       (t.handCount ? ' · 第 ' + t.handCount + ' 手' : '');
-    el.pot.textContent = UI.fmt(t.pot);
+    // 摊牌结算期底池已清空（引擎到下一手才归零）：显示 0 而不是残留旧值
+    el.pot.textContent = UI.fmt(t.phase === 'showdown' ? 0 : t.pot);
     el.blind.textContent = room.id + ' · 盲注 ' + room.sb + '/' + room.bb;
     el.waiting.hidden = room.status === 'playing';
     // 房主的开局控制（大厅不再承载房间内操作，控制跟着房主进牌桌）：
@@ -281,7 +283,6 @@
     renderWinBanner(res);  // 结算展示期：桌面中央的获胜横幅（res 即上文 winCards 用的 state.result）
     renderPotStack();      // 桌心底池筹码堆：pot 金额的图形化
     maybeAward();          // 必须在 renderSeats 之后：动画要按座位 DOM 的落点算坐标
-    renderScore();
     renderLog(state.logs || []);
     renderChat(state.chat || []);
     renderActions();
@@ -289,8 +290,11 @@
     if (firstRender) { firstRender = false; scheduleFit(); }
   }
 
-  /** 公共牌：只渲染已经发出的牌。以前会补 5 个半透明空占位，视觉上很脏，
-   *  而且「还剩几张没发」这个信息玩家心里有数，不需要画出来。
+  /** 公共牌：五个位置固定（GG 同款）。以前按已发张数整体居中 —— 翻牌三张
+   *  在中央，转牌落下时三张一起左移给新牌让位，河牌再挪一次，玩家建立的
+   *  位置记忆每条街被打破一次。现在五个槽位从翻牌前就钉死：未发出的位置
+   *  渲染透明占位（.bslot），只有几何锚点的作用 —— 不是视觉占位，玩家
+   *  看到的依然只有已发出的牌。
    *  新街翻开的牌错峰入场（对比上一帧的张数，多出来的就是本街新牌）；
    *  摊牌时构成赢家最佳五张的公共牌描金框（.hl）。 */
   function renderBoard() {
@@ -301,7 +305,11 @@
     // 重闪一遍 —— 已发出的牌必须纹丝不动，动画只属于正在发的那张。
     const cls = (c, i) =>
       (i >= lastN ? 'deal ' : '') + (winCards && winCards[c.r + '-' + c.s] ? 'hl' : '');
-    el.board.innerHTML = b.map((c, i) => UI.cardHTML(c, cls(c, i))).join('');
+    let html = '';
+    for (let i = 0; i < 5; i++) {
+      html += b[i] ? UI.cardHTML(b[i], cls(b[i], i)) : '<div class="bslot"></div>';
+    }
+    el.board.innerHTML = html;
     // 新牌错峰：本街第几张决定延迟（翻牌三张连着翻，转牌/河牌单独翻）
     if (b.length > lastN) {
       let k = 0;
@@ -309,7 +317,6 @@
         n => { n.style.animationDelay = (k++ * 0.13) + 's'; });
     }
     el.board.classList.toggle('has-cards', b.length > 0);
-    el.board.style.setProperty('--board-n', b.length);
     renderBoard.n = b.length;
   }
 
@@ -332,12 +339,45 @@
     const mine = !!(you && you.seat >= 0 && winners.some(w => w.index === you.seat));
     // 弃牌收池不展示牌型：没摊牌就没有牌型可展示（赢家的 hand 虽然在
     // revealed 里，亮出来等于替他翻开本可以 muck 的牌）。只有摊牌才配牌型括号。
-    b.innerHTML = winners.map(w =>
-      UI.esc(w.name) + ' 赢得 ' + UI.fmt(w.won) +
-      (!fold && handOf[w.index] ? '（' + UI.esc(handOf[w.index]) + '）' : '')
-    ).join('、') + (fold ? ' · 无人摊牌' : '');
+    // 结算分池（边池）：每个池一行 —— 「主池 5,000 · Lew123（两对）」；
+    // 曾挤成一根长胶囊（多赢家顿号相连），竖屏上超屏截断、主次不分。
+    const nameOf = idx => { const s = res.seats[idx]; return s ? s.name : '?'; };
+    const row = (txt, side) => '<div class="wb-row' + (side ? ' wb-side' : '') + '">' + txt + '</div>';
+    const pots = (res.pots || []).filter(p => p.amount > 0 && p.winners.length);
+    let html;
+    if (!fold && pots.length > 1) {
+      html = pots.map((p, i) => {
+        const names = p.winners.map(idx => {
+          const h = handOf[idx];
+          return UI.esc(nameOf(idx)) + (h ? '（' + UI.esc(h) + '）' : '');
+        }).join('、');
+        return row('<b>' + (i === 0 ? '主池' : '边池 ' + i) + ' ' + UI.fmt(p.amount) + '</b> · ' + names, i > 0);
+      }).join('');
+    } else {
+      html = row(winners.map(w =>
+        UI.esc(w.name) + ' 赢得 ' + UI.fmt(w.won) +
+        (!fold && handOf[w.index] ? '（' + UI.esc(handOf[w.index]) + '）' : '')
+      ).join('、') + (fold ? ' · 无人摊牌' : ''));
+    }
+    b.innerHTML = html;
     b.classList.toggle('mine', mine);
     b.classList.add('show');
+    fitBannerText(b);
+  }
+
+  /** 结算行文字自适应：名字过长时不打省略号，先把字号缩到装得下（GG 同款）。
+   *  每行独立缩放 —— 主池行正常、只有名字超长的边池行缩小，主次仍然分明。
+   *  幂等：renderWinBanner 每帧重建 innerHTML 后调用，style.fontSize 先复位再量。 */
+  function fitBannerText(b) {
+    b.querySelectorAll('.wb-row').forEach(row => {
+      row.style.fontSize = '';
+      let fs = parseFloat(getComputedStyle(row).fontSize);
+      // 缩到装下为止；10px 是下限（再小读不了，宁可在极长名字下回到省略号）
+      while (row.scrollWidth > row.clientWidth + 1 && fs > 10) {
+        fs -= 1;
+        row.style.fontSize = fs + 'px';
+      }
+    });
   }
 
   /* ---------- 桌心底池筹码堆 ----------
@@ -347,8 +387,10 @@
   function renderPotStack() {
     const box = el.potStack;
     if (!box) return;
-    const pot = state.table ? state.table.pot : 0;
-    if (pot <= 0) { box.innerHTML = ''; return; }
+    const tb = state.table || {};
+    const pot = tb.pot || 0;
+    // 摊牌结算期：底池已分走（引擎到下一手才清 pot），桌心的筹码堆清空
+    if (pot <= 0 || tb.phase === 'showdown') { box.innerHTML = ''; return; }
     const n = pot <= 200 ? 3 : pot <= 2000 ? 5 : 7;
     let html = '';
     for (let i = 0; i < n; i++) {
@@ -405,6 +447,13 @@
     if (f.hand !== hand) return null;          // 属于上一手，不显示
     if (Date.now() >= f.until) return null;    // 已过 3 秒驻留期
     return f;
+  }
+
+  /** 座位下的动作文字去掉金额：「加注到 200」→「加注」。金额在下注额胶囊
+   *  与 3 秒动作反馈里都有（第三处重复），且 16px 的大号胶囊向卡内生长后，
+   *  带金额的长文字会与它在卡下方水平打架 —— 精简后这行永远短于胶囊左沿。 */
+  function shortAction(a) {
+    return String(a || '').replace(/\s+[\d.,K]+$/, '').replace('加注到', '加注');
   }
 
   /** 牌局整体回到空闲时彻底清空，避免下次开局闪出旧内容 */
@@ -529,15 +578,17 @@
       const mine = s.name === myName;
       const isTurn = t.currentIdx === s.i;
       // 两张底牌必须包进 .hole 才会横向并排。
-      // 尺寸对所有人统一（都是 .card.small）：本人与对手的区分只靠牌面朝向，
-      // 不靠大小 —— 以前自己的牌是对手的两倍，看起来像渲染坏了。
+      // 对手之间等大（.card.small）；本人的牌加 .big（对手 × 1.2，GG 式）——
+      // 全屏唯一需要读清数字的牌，放大是可读性投资而非炫技。
+      // （旧约定"所有人等大"已由本变更按用户决策废除，断言见 layout/visual-test。）
       // .hole 是卡片上方的绝对定位浮层，不参与座位卡布局：
       // 空位/未发牌/弃牌时它整块消失，若参与布局座位就会忽高忽低。
       let cards = '';
       if (s.inHand) {
         // 新一手挂 .deal（错峰淡入），delay 按「座位号 × 70ms」写在 data-d 上。
         // 摊牌时构成赢家最佳五张的底牌同样描金框。
-        const hlC = c => 'small' + (winCards && winCards[c.r + '-' + c.s] ? ' hl' : '');
+        const hlC = c => 'small' + (mine ? ' big' : '') +
+          (winCards && winCards[c.r + '-' + c.s] ? ' hl' : '');
         cards = '<div class="hole' + (holeDeal ? ' deal' : '') + '" data-d="' + (s.i * 70) + '">' +
           (s.hole
             ? s.hole.map(c => UI.cardHTML(c, hlC(c))).join('')
@@ -545,15 +596,23 @@
       }
       let badges = '';
       if (s.bot) badges += '<span class="badge bot">AI</span>';
-      if (t.sbIdx === s.i) badges += '<span class="badge sb">小盲</span>';
-      if (t.bbIdx === s.i) badges += '<span class="badge bb">大盲</span>';
-      if (s.allIn) badges += '<span class="badge allin">ALL IN</span>';
       if (!s.connected) badges += '<span class="badge hand">掉线</span>';
+      // 小盲/大盲：缩成头像左上角的圆标 —— 曾挂在右上角与「你的牌」并排，
+      // 实测横排正好盖住本人手牌下缘（GG 同款：盲注标就贴在头像角上）。
+      const posTags = (t.sbIdx === s.i ? '<span class="pos-tag sb">小</span>' : '') +
+        (t.bbIdx === s.i ? '<span class="pos-tag bb">大</span>' : '');
+      // 我的当前牌型（翻牌起服务端每条街都在算，stateFor 的 you.hand）：
+      // 挪到名牌下方的反馈位常驻绿字 —— 曾挂在右上角，横排「大盲/你的牌 一对」
+      // 实测盖住手牌。下方是行动反馈位（act-flash 飞入动画已播过即时反馈）。
+      const myHandLive = (mine && t.you && t.you.hand && s.inHand && !s.folded)
+        ? '你的牌 ' + UI.esc(t.you.hand) : null;
       // 牌型不放在这里 —— 对手的 .sub 是整体隐藏的（见 app.css），
       // 塞进来就只有自己看得见。它单独走 .hand-tag 浮层（见下）。
       const status = isTurn
         ? '<div class="thinking">' + (s.connected ? '行动中…' : '掉线等待') + '</div>'
-        : (s.lastAction ? '<div class="last">' + UI.esc(s.lastAction) + '</div>' : '');
+        : (myHandLive
+          ? '<div class="last hand-live">' + UI.esc(myHandLive) + '</div>'
+          : (s.lastAction ? '<div class="last">' + UI.esc(shortAction(s.lastAction)) + '</div>' : ''));
 
       // 行动中的人：座位上挂一个倒计时秒数
       const isActing = t.actSeat === s.i && !!t.actDeadline;
@@ -578,7 +637,11 @@
       // 但他仍在牌里、不该被灰掉（那会和「已淘汰」混为一谈）。
       const isOut = s.chips <= 0 && !s.inHand;
       // 本轮下注：全下时标注「ALL IN」，否则显示金额；押注前不占位。
-      const betTag = s.bet > 0
+      // 摊牌后桌面清场（GG 同款）：底池已分给赢家，座位前的注码胶囊不再显示。
+      // 引擎要到下一手 startHand 才清 s.bet，不去掉的话整个结算展示期
+      // 注码都挂在座位旁 —— 实测挡住名牌/筹码数，玩家以为钱没进池。
+      const settled = t.phase === 'showdown';
+      const betTag = s.bet > 0 && !settled
         ? '<div class="bet' + (s.allIn ? ' allin' : '') + '">' + UI.fmt(s.bet) + '</div>'
         : '';
       // 庄家按钮（Dealer Button）：独立浮层，不放进 .sub（对手的 .sub 是隐藏的）——
@@ -605,9 +668,13 @@
         handTag +
         eqTag +
         '<div class="info">' +
-          '<div class="avatar">' + UI.esc(s.name.slice(0, 1)) + '</div>' +
-          '<div class="nm">' + UI.esc(s.name) + (mine ? '（我）' : '') + '</div>' +
-          '<div class="chips">' + UI.fmt(s.chips) + '</div>' +
+          '<div class="avatar">' + UI.esc(s.name.slice(0, 1)) + '</div>' + posTags +
+          '<div class="itxt">' +
+            // 不带「（我）」后缀：金色高亮 + 固定 0 号位已经标识了自己，
+            // 后缀会把窄昵称行挤到截断（fb99227（我）→ fb9922…）
+            '<div class="nm">' + UI.esc(s.name) + '</div>' +
+            '<div class="chips">' + UI.fmt(s.chips) + '</div>' +
+          '</div>' +
         '</div>' +
         (badges ? '<div class="sub">' + badges + '</div>' : '') +
         dealerChip +
@@ -712,6 +779,9 @@
     const dur = 620 + Math.random() * 220;
     const delay = i * 65 + Math.random() * 40;
     const drop = () => c.remove();
+    // 双保险：onfinish 在后台标签页会随动画一起暂停、极端情况下不来，
+    // fill:forwards 的筹码就永远停在赢家座位上 —— 定时器晚 400ms 兜底强制清场
+    setTimeout(drop, delay + dur + 400);
     // 没有 Web Animations（老浏览器 / jsdom）就不硬撑，直接把元素撤掉
     if (!c.animate) { setTimeout(drop, delay + dur); return; }
     const a = c.animate([
@@ -884,21 +954,6 @@
     if (el.btnSound) el.btnSound.textContent = muted ? '音效 关' : '音效 开';
   }
 
-  function renderScore() {
-    const t = state.table;
-    let html = '<tr><th>座位</th><th style="text-align:right">桌上</th><th style="text-align:right">本轮</th></tr>';
-    t.seats.filter(s => s.name).forEach(s => {
-      const isOut = s.chips <= 0 && !s.inHand;
-      // 明细表是审计语义，保留精确值 —— 桌面上的 UI.fmt 会在 ≥10K 时缩写成 x.xK
-      const betCell = s.allIn ? 'ALL IN' : (s.bet ? s.bet.toLocaleString() : '—');
-      html += '<tr class="' + (isOut ? 'out' : '') + '">' +
-        '<td>' + UI.esc(s.name) + (s.name === myName ? '（我）' : '') + '</td>' +
-        '<td style="text-align:right">' + s.chips.toLocaleString() + '</td>' +
-        '<td style="text-align:right">' + betCell + '</td></tr>';
-    });
-    el.score.innerHTML = html;
-  }
-
   function renderLog(list) {
     el.log.innerHTML = list.map(l =>
       // class 必须加 ln- 前缀：裸用 kind 会撞上同名的全局样式
@@ -945,6 +1000,11 @@
       else if (t.currentIdx >= 0) {
         const p = t.seats[t.currentIdx];
         el.prompt.innerHTML = '等待 <b>' + UI.esc(p ? p.name : '') + '</b> 行动…';
+      }
+      // 上桌大盲预告：坐下时系统日志说过一次，但那是一闪而过的滚动条 ——
+      // 行动条这里常驻一行，玩家点「坐下」到真正发牌之间随时能看到要交多少
+      else if (state.table.you.mustPostBB) {
+        el.prompt.innerHTML = '你已上桌 · <b class="need-call">下一手需上桌大盲</b>（座位徽章会标记金额）';
       } else if (state.result) {
         // 结算展示期：上一手的结论摆在横幅里，这里预告的是节奏。
         // 以前这行写「等待发牌…」，和阶段标签「摊牌 · 第 N 手」自相矛盾。
@@ -974,6 +1034,9 @@
     } else {
       el.btnRaise.querySelector('.lbl').textContent = '加注';
     }
+    // 行动提示只留决策必需（GG 同款做减法）：轮到你了 · 底池 · 需跟注/可过牌 · 赔率。
+    // 「你的牌」挪到本人座位的徽章（renderSeats，位置与 GG 一致 —— 牌型属于座位，
+    // 不属于行动条）；「我的筹码」座位卡与顶栏都有，行动条里是第三次重复。
     el.prompt.innerHTML = '<b>轮到你了</b> · 底池 <b>' + UI.fmt(L.pot) + '</b>' +
       (L.toCall > 0
         ? ' · 需跟注 <b class="need-call">' + L.toCall.toLocaleString() + '</b>' +
@@ -981,10 +1044,11 @@
           // 底池只是规模感，缩写无妨
           ' · 赔率 <b class="odds">' + Math.round(L.toCall / (L.pot + L.toCall) * 100) + '%</b>'
         : ' · <b class="can-check">可以过牌</b>') +
-      // 我的当前牌型：服务端翻牌后每条街都在算（stateFor 的 you.hand），
-      // 两家标杆平台（GG / PokerStars）都在行动区显示 —— 不用玩家自己在心里拼。
-      (you.hand ? ' · 你的牌 <b class="my-hand">' + UI.esc(you.hand) + '</b>' : '') +
-      ' · 我的筹码 <b>' + UI.fmt(you.tableChips) + '</b>';
+      // 连续超时警告：第 2 次就开始喊（第 3 次就被请离了），颜色用红——是惩罚不是参考
+      (you.timeoutStreak >= 1
+        ? ' · <b style="color:var(--red)">已连续超时 ' + you.timeoutStreak +
+          ' 次，再超时' + (you.timeoutStreak >= 2 ? '' : '两次') + '将被请离座位</b>'
+        : '');
     startTimer();
   }
 
@@ -996,6 +1060,12 @@
   }
 
   function startTimer() {
+    // 不限制超时的房间：没有可倒数的时限，计时条整个藏起来（按钮照常可用）
+    if (!actionTimeout() || !(state.table.you.act && state.table.you.act.deadline)) {
+      el.timer.hidden = true;
+      el.timer.className = 'timer';
+      return;
+    }
     if (timerId) return;
     el.timer.hidden = false;
     let lastTickSec = -1;        // 上一次滴答响过的整秒（-1 = 还没进入 5 秒区）
@@ -1104,8 +1174,31 @@
    * 让所有人看清后再进入下一手。这里因此不需要任何浮层逻辑。 */
 
   /* ---------- 顶栏与聊天 ---------- */
+  /* 侧栏开关：桌面（沉浸式布局）默认展开、位置由 localStorage 记忆；
+   * 小屏仍是抽屉（默认收起，不记忆 —— 每次进来都干净）。 */
+  const SIDE_KEY = 'poker_side';
+  function wideScreen() { return window.innerWidth > 1000 && window.innerHeight > 600; }
+  function savedOpen() {
+    try { return localStorage.getItem(SIDE_KEY) !== '0'; } catch (e) { return true; }
+  }
+  (function initSide() {
+    if (wideScreen() && savedOpen()) el.side.classList.add('open');
+    // 跨视口档切换（拖窗口/旋转）时 open 状态会跨档残留 —— 桌面开着侧栏
+    // 缩到矮屏，抽屉会保持打开，与矮屏「默认收起」相悖。跨档重置为该档默认，
+    // 同档内的手动开关不受影响。
+    let lastWide = wideScreen();
+    window.addEventListener('resize', () => {
+      const w = wideScreen();
+      if (w !== lastWide) {
+        lastWide = w;
+        el.side.classList.toggle('open', w && savedOpen());
+        scheduleFit();
+      }
+    });
+  })();
   el.btnPanel.onclick = () => {
-    el.side.classList.toggle('open');   // 小屏侧栏抽屉
+    el.side.classList.toggle('open');
+    try { if (wideScreen()) localStorage.setItem(SIDE_KEY, el.side.classList.contains('open') ? '1' : '0'); } catch (e) {}
     scheduleFit();                      // 抽屉开合会改变 .table-fit 的宽度，重算缩放
   };
   el.btnLobby.onclick = () => {
@@ -1157,7 +1250,7 @@
     const t = state.table;
     if (t.you.seat >= 0) return UI.toast('你已经在座了');
     const acc = t.you.account || 0;
-    if (acc <= 0) return UI.toast('账号余额不足', 'err');
+    if (acc <= 0) return UI.toast('账号余额不足 · 请点「返回大厅」，在大厅点「领取筹码」后再来', 'err');
     const free = (t.seats || []).find(s => !s.name);
     if (!free) return UI.toast('已经没有空位了', 'err');
     Net.send({ type: 'sit', seat: free.i, amount: Math.max(1, Math.min(state.room.buyIn, acc)) });

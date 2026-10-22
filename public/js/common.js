@@ -68,7 +68,11 @@ window.UI = (function () {
       '<button class="ghost" data-x>取消</button>' +
       '<button class="primary" data-ok>' + esc(opt.okText || '确定') + '</button>' +
       '</div></div>';
-    document.body.appendChild(wrap);
+    // 弹窗挂到 .rot-root（若在牌桌页）：竖屏时整个界面旋转 90°，
+    // 挂 body 上弹窗不旋转、方向错乱；rot-root 是 transform 容器，
+    // fixed 定位以它为包含块，正好落进旋转后的坐标系。
+    // 非桌页没有 rot-root，回落 body（display:contents 的 rot-root 也不影响布局）。
+    (document.querySelector('.rot-root') || document.body).appendChild(wrap);
     const input = wrap.querySelector('input');
     const close = () => wrap.remove();
     wrap.addEventListener('click', e => {

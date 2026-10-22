@@ -58,6 +58,7 @@
         acted: false,
         canRaise: true,
         inHand: false,
+        mustPostBB: !!s.mustPostBB,     // 上桌大盲：联机侧 sit() 标记（房 mid-game 加入），发牌时消化
         lastAction: '',
         won: 0,
         hand: null
@@ -251,7 +252,8 @@
   PokerEngine.prototype.postBlind = function (seat, amount, label) {
     var amt = Math.min(amount, seat.chips);
     seat.chips -= amt;
-    seat.bet = amt;
+    // 累加而不是覆盖：小盲位上还要补一个「上桌大盲」，两次下注要叠在同一个 bet 上
+    seat.bet = (seat.bet || 0) + amt;
     seat.totalContrib += amt;
     if (seat.chips === 0) seat.allIn = true;
     seat.lastAction = label + ' ' + amt;
@@ -296,6 +298,17 @@
 
     this.postBlind(this.seats[this.sbIdx], this.sb, '小盲');
     this.postBlind(this.seats[this.bbIdx], this.bb, '大盲');
+
+    // 上桌大盲（GG 同款）：牌局进行中加入的座位，第一手必须额外交一个大盲，
+    // 不然空降玩家能白吃一手「盲注轮不到我」。正好轮到大盲位的免交（已交过）。
+    // 交完清标记；没筹码入场的（inHand=false）保到真正发到牌的那一手。
+    for (var mi = 0; mi < this.seats.length; mi++) {
+      var ms = this.seats[mi];
+      if (!ms.mustPostBB || !ms.inHand) continue;
+      if (mi === this.bbIdx) { ms.mustPostBB = false; continue; }
+      this.postBlind(ms, this.bb, '上桌大盲');
+      ms.mustPostBB = false;
+    }
 
     // 发底牌：从小盲开始，每次一张，共两轮
     var order = [], idx = this.sbIdx;

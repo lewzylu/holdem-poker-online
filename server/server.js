@@ -58,7 +58,19 @@ const server = http.createServer((req, res) => {
   }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('404'); }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    const ext = path.extname(file);
+    // no-store：开发期改 CSS/JS 后浏览器必须真实拉取
+    //（no-cache 仍会命中内存缓存，曾让验收测到旧布局）
+    // 图片例外（牌面雪碧图 282KB）：no-store 下每次进房都重新下载，
+    // 下载期间牌面是灰底兜底色 —— 用户实测「刚进房花色全灰、要等一会儿」。
+    // 图片改长缓存 immutable；将来换图改文件名（cards2.png）即可破缓存。
+    const cacheable = /\.(png|jpe?g|gif|svg|webp|woff2?)$/i.test(ext);
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': cacheable
+        ? 'public, max-age=31536000, immutable'
+        : 'no-store'
+    });
     res.end(data);
   });
 });
@@ -197,6 +209,15 @@ wss.on('connection', ws => {
 function requireAuth(ws) {
   const m = wsMeta.get(ws);
   if (!m || !m.name) { sendWs(ws, { type: 'error', msg: '请先登录' }); return null; }
+  // 重连早期 roomId 还没绑上（resume 只恢复 name，roomId 靠 me 消息反查）：
+  // 这段窗口里点「坐下/行动/补给」曾被误报「不在房间内」。反查逻辑与 me 一致，
+  // 放在 requireAuth 里让所有房间操作天然免疫这个时序。
+  if (!m.roomId) {
+    for (const [id, r] of rooms) {
+      if (r.members.has(m.name)) { m.roomId = id; break; }
+    }
+  }
+  if (m.roomId && !rooms.get(m.roomId)) m.roomId = null;
   return m;
 }
 
@@ -271,7 +292,9 @@ async function handle(ws, msg) {
         title: String(msg.title || (a.name + '的牌局')).slice(0, 20),
         sb: clampInt(msg.sb, 1, 500, 5),
         bb: clampInt(msg.bb, 2, 1000, 10),
-        buyIn: clampInt(msg.buyIn, db.MIN_BUYIN, db.MAX_BUYIN, 1000)
+        buyIn: clampInt(msg.buyIn, db.MIN_BUYIN, db.MAX_BUYIN, 1000),
+        // 行动超时（秒）：0 = 不限制。默认 30s 与旧常量一致。
+        actTimeout: clampInt(msg.actTimeout, 0, 600, 30)
       }, ctx);
       if (room.bb < room.sb * 2) room.bb = room.sb * 2;
       rooms.set(id, room);

@@ -7,8 +7,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>牌桌 · 德州扑克</title>
-<link rel="stylesheet" href="/css/table.css">
-<link rel="stylesheet" href="/css/app.css">
+<link rel="stylesheet" href="/css/table.css?v=2">
+<link rel="stylesheet" href="/css/app.css?v=2">
 </head>
 <body>
 
@@ -52,13 +52,15 @@
     <div class="table-wrap">
       <div class="table-fit" id="table-fit">
         <div class="table-canvas" id="table-canvas">
+          <!-- 信息条：宽屏在桌布内顶部；矮屏变形桌时由 CSS 移到画布顶部
+               （桌布被压扁，信息条若留在桌内会与公共牌/座位打架） -->
+          <div class="table-top">
+            <div class="phase-tag" id="phase">准备</div>
+            <div class="pot" id="pot"><span class="label">底池</span><b>0</b></div>
+            <div class="blind-tag" id="blind">—</div>
+          </div>
           <!-- .felt 是桌面本体（画布内居中的圆角长方形），只放桌面上的东西 -->
           <div class="felt">
-            <div class="table-top">
-              <div class="phase-tag" id="phase">准备</div>
-              <div class="pot" id="pot"><span class="label">底池</span><b>0</b></div>
-              <div class="blind-tag" id="blind">—</div>
-            </div>
             <div class="board" id="board"></div>
             <!-- 桌心底池筹码堆：把「底池多大」从读数字变成看图。JS 按 pot 金额生成。 -->
             <div class="pot-stack" id="pot-stack" aria-hidden="true"></div>
@@ -112,10 +114,8 @@
   </main>
 
   <aside class="side">
-    <div class="panel">
-      <h3>座位</h3>
-      <table class="score" id="score"><tbody></tbody></table>
-    </div>
+    <!-- 座位表已随沉浸式布局移除：与桌面座位信息完全重复（第三次展示）。
+         侧栏的悬浮化与开关见 app.css 桌面媒体查询 + table.js 的侧栏记忆。 -->
     <div class="panel grow">
       <h3>牌局记录</h3>
       <div class="log" id="log"></div>
@@ -131,13 +131,13 @@
   </aside>
 </div>
 
+<div id="toast" class="toast"></div>
 </div><!-- /.rot-root -->
 
-<div id="toast" class="toast"></div>
 
-<script src="/js/cards.js"></script>
-<script src="/js/net.js"></script>
-<script src="/js/common.js"></script>
-<script src="/js/table.js"></script>
+<script src="/js/cards.js?v=2"></script>
+<script src="/js/net.js?v=2"></script>
+<script src="/js/common.js?v=2"></script>
+<script src="/js/table.js?v=2"></script>
 </body>
 </html>

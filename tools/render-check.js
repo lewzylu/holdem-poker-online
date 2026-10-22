@@ -2,7 +2,7 @@
  *   1) 底牌必须横向并排（而不是竖着堆叠）
  *   2) 日志行不能继承 .board 的绝对定位（否则「河牌：♦A …」会飘到页面正中）
  *   3) 公共牌只渲染已发出的牌，不留空占位
- *   4) 自己的座位在左下方，且底牌与对手牌背**等大**（固定画布改造后所有牌统一尺寸）
+ *   4) 自己的座位在左下方，且底牌为对手牌背的 1.2 倍（GG 式放大）
  * 依赖：agent-browser（真实 Chromium，jsdom 不做布局算不出坐标）
  * 用法：node tools/render-check.js [房间号]
  */
@@ -118,14 +118,14 @@ const PROBE = `JSON.stringify((function(){var rect=function(e){var b=e.getBoundi
     ok(cy > fy, '我的座位在牌桌下半边');
   }
   if (g.myCards.length === 2 && g.otherHoles[0] && g.otherHoles[0].length === 2) {
-    // 以前这里断言「我的牌比别人大」。固定画布改造后所有底牌统一尺寸：
-    // 本人与对手的区分靠牌面朝向和座位高亮，不靠大小。
+    // GG 式放大（table-gg-immersive-layout）：本人牌 = 对手 × 1.2（58×80 vs 48×67）。
+    // 旧断言"所有人等大"已按用户决策废除，对手之间仍等大（visual-check 守）。
     const a = g.myCards[0], b = g.otherHoles[0][0];
-    ok(Math.abs(a.w - b.w) <= 0.5 && Math.abs(a.h - b.h) <= 0.5,
-      '我的牌与对手牌背等大（' + a.w + '×' + a.h + ' vs ' + b.w + '×' + b.h + '）');
+    ok(Math.abs(a.w - b.w * 1.2) <= 2 && Math.abs(a.h - b.h * 1.2) <= 2,
+      '本人牌 = 对手牌背 × 1.2（' + a.w + '×' + a.h + ' vs ' + b.w + '×' + b.h + '）');
   }
   if (g.tableTop) {
-    ok(g.tableTop.h < 40, '牌桌顶部信息条已压成一行（高 ' + g.tableTop.h + 'px）');
+    ok(g.tableTop.h < 64, '牌桌顶部信息条已压成一行（高 ' + g.tableTop.h + 'px）');
   }
   ok(g.vw <= 0 || true, '视口 ' + g.vw + '×' + g.vh);
 

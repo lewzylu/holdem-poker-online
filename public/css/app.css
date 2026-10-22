@@ -135,6 +135,7 @@ button.mini {
 .chip-badge {
   background: rgba(240,180,41,.14); color: var(--gold); border: 1px solid rgba(240,180,41,.3);
   padding: 2px 10px; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums;
+  font-size: 15px;   /* 账号余额与桌上筹码是顶栏的核心数字，不吃 .me 的 13px */
 }
 .chip-badge.table-chips { background: rgba(46,204,113,.12); color: var(--green); border-color: rgba(46,204,113,.3); }
 .conn-tip { color: var(--muted); font-size: 12px; }
@@ -346,9 +347,10 @@ button, .room-item, .seat, #raise-slider {
 
 /* ==================== 手机横屏 / 矮屏（**视觉**尺寸：横向的一块、高 ≤ 600px）====================
  * 横屏手机典型视口：844×390、932×430、1080×490、740×360（CSS 像素）
- * 策略：压缩顶栏、侧栏改成可召唤的抽屉、**操作条竖过来放右侧**，
- * 把纵向空间全部留给牌桌 —— 画布在这类屏上总是卡在高度，省下的每 1px 高
- * 都直接变成牌桌的 2px 宽。
+ * 策略：压缩顶栏、侧栏改成可召唤的抽屉、**操作条底部横排大按钮**（GG 手机同款，
+ * 用户决策）—— 早期版本是"右侧竖条省高度"（tscale 优先），改版后按钮优先：
+ * 牌桌让出 ~72px 高度换按钮满宽好按。快捷注额与条内倒计时在矮屏隐藏
+ * （滑杆够用、座位倒计时重复）。
  *
  * 第二个条件 (max-width:600px) and (orientation:portrait) 是**竖屏**那一半：
  * 竖屏时整个界面被旋转 90°（见下面 .rot-root），旋转后的视觉尺寸是「宽=100vh、
@@ -375,10 +377,6 @@ button, .room-item, .seat, #raise-slider {
     padding: 6px max(8px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-bottom));
     gap: 8px;
     position: relative;
-    /* 高度由 body 的 flex 列负责（.layout 是 flex:1），不再写死。
-       单列：侧栏在这一档是 display:none 的抽屉，但 grid 的列轨道**不会**因为
-       子项隐藏而消失 —— 不改这里的话右边会一直空占 320px，牌桌白白少掉三成宽度
-       （1080 宽的横屏上实测只分到 728px）。抽屉靠 absolute 浮在上面，不占轨道。 */
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -393,51 +391,267 @@ button, .room-item, .seat, #raise-slider {
   }
   .side.open .panel { flex: 1; margin-bottom: 0; }
 
-  /* 迷你牌：它不在画布内，可以跟着屏幕缩 */
   .card.mini { width: 20px; height: 28px; }
   .card.mini .rank { font-size: 14px; }
   .card.mini .rank.two-char { font-size: 10px; }
 
-  /* ---- 操作条移到牌桌右侧 ----
-   * 横屏手机上高度是唯一的稀缺资源（画布受限于高度时，省下 1px 高就等于牌桌大 2px 宽）。
-   * 操作条横在下面要吃掉 60~70px 高，而右侧的宽度本来就是富余的 ——
-   * 把它竖过来放右边，整个高度都还给牌桌：实测 1080×490 上 tscale 0.61 → 0.73。
-   *
-   * 宽度用 clamp 而不是定值：理想宽度是「可用宽 - 2×可用高」（正好让画布卡在高度上），
-   * 但窄机上那个值会小到放不下按钮，所以给 120px 下限兜底。 */
-  .table-main { flex-direction: row; gap: 8px; min-height: 0; }
+  /* ---- GG 手机横屏式：底部横排操作条 + 变形桌 ----
+   * 操作条回到底部（用户决策）：弃牌|跟注|滑杆|加注|全下 一行大按钮，拇指热区。
+   * 画布不再等比缩放——拉伸为容器实际尺寸，桌布以百分比铺满成压扁的跑道
+   * （GG 手机的真做法），座位贴新桌沿重新分布（data-slot 重映射，
+   * !important 压过 JS 写的内联百分比），牌与字号同步放大（真实像素）。
+   * 快捷注额、条内倒计时、预选条在矮屏隐藏：滑杆够用、座位倒计时已有、
+   * 预选条会撑高操作条（实测 101px vs 73px）。
+   * 获胜横幅浮在公共牌上方（GG 手机同款，短暂覆盖 3 秒）。 */
+  .table-main { flex-direction: column; gap: 6px; min-height: 0; position: relative; }
   .table-wrap { flex: 1 1 auto; min-width: 0; min-height: 0; }
+  /* 操作条 = 浮层（GG 手机的真做法）：压在桌布下缘上，canvas 全高给桌子。
+     底席（y 71%）贴桌沿、操作条浮其下缘，两者以 z-index 分层。 */
+  /* 中央胶囊条（GG 手机同款）：不再全宽横贯 —— 左右底席名牌与下注徽章
+     下方完全敞开，操作条只对着我（slot 0）的下方。560 起步、窄屏自适应。 */
   .action-bar {
-    flex: 0 0 auto; width: clamp(120px, 18vw, 180px);
-    margin-top: 0; padding: 6px; border-radius: 10px;
-    display: flex; flex-direction: column; min-height: 0;
-    overflow-y: auto;
+    position: absolute; left: 50%; right: auto; bottom: calc(4px + env(safe-area-inset-bottom));
+    width: min(560px, calc(100% - 20px));
+    transform: translateX(-50%);
+    z-index: 25; margin-top: 0; padding: 4px 6px 4px;
+    border-radius: 10px;
+    display: flex; flex-direction: column; gap: 2px; min-height: 0;
   }
   .prompt {
-    font-size: 11px; margin: 0 0 5px; min-height: 0;
-    white-space: normal; line-height: 1.35;
+    font-size: 10px; margin: 0; min-height: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25;
   }
-  /* 竖排布局：计时在最上（最需要瞥见），然后滑杆 + 快捷注额，最后四个按钮两列排开。
-     .buttons 撑满剩余高度，按钮用 min-height 保证落点够大 —— 右侧这一条的高度
-     本来就是白给的（牌桌卡在高度、用不掉这份宽度），空着反而浪费。
-     不用 align-content:stretch：那会把计时和滑杆那两行也一起拉高。 */
-  .buttons { flex: 1 1 auto; flex-wrap: wrap; gap: 5px; align-content: flex-start; }
+  .buttons { display: flex; flex-wrap: nowrap; gap: 4px; align-items: stretch; }
+  /* flex-basis 0 + overflow 截断：四按钮平分剩余宽度、与文字长度无关
+     —— 拖滑杆时加注按钮文字实时变（加注到 20 → 全下 640），
+     内容驱动宽度实测让整行按钮 ±抖动；滑杆(flex:2)还把按钮挤到 51px。 */
   button.act {
-    flex: 1 1 calc(50% - 3px); min-width: 0; min-height: 44px;
-    padding: 9px 4px; font-size: 13px; border-radius: 8px;
+    flex: 1 1 0 !important; min-width: 0; min-height: 42px;
+    padding: 6px 2px; font-size: 12px; border-radius: 8px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   button.act kbd { display: none; }
   .raise-box {
-    order: -1; width: 100%; min-width: 0;
-    flex-direction: column; align-items: stretch; gap: 4px;
+    order: 3; flex: 0 0 168px !important; min-width: 0;
+    flex-direction: row; align-items: center; gap: 5px;
   }
   #raise-slider { width: 100%; min-width: 0; height: 18px; }
-  .quick { gap: 3px; }
-  .quick button { flex: 1; font-size: 10px; padding: 3px 2px; }
-  /* 计时置顶并横向撑满：秒数比进度条有用，条收窄让位给数字 */
-  .timer { order: -2; width: 100%; gap: 5px; margin-bottom: 2px; }
-  .timer-track { flex: 1; width: auto; height: 6px; }
-  .timer-sec { font-size: 14px; }
+  .quick { display: none; }
+  /* !important 必须：基础区（文件下方）有一条 .timer { display: flex }，
+     同特异性时后写的赢 —— 不加 important 时竖屏旋转档的 none 被它覆盖，
+     timer 在行动态出现并吃掉一半按钮宽（实测按钮被挤到 47px）。 */
+  .timer { display: none !important; }
+  .pre-actions { display: none; }
+
+  .table-canvas {
+    left: 0; top: 0; transform: none;
+    width: 100%; height: 100%;
+  }
+  .felt {
+    left: 1.5%; right: 1.5%; top: 14%; bottom: 5%;
+    width: auto; height: auto;
+    border-radius: 46%/58%;
+    box-shadow: inset 0 0 60px rgba(0, 0, 0, .5), 0 10px 30px rgba(0, 0, 0, .45);
+  }
+  /* 座位贴新桌沿（canvas 全高）：底席 y=71%（卡底贴桌沿下缘、操作条浮层之下）、
+     顶席 y=36%（牌顶躺在桌沿内侧）、侧席 y=30%/72% */
+  /* 座位像素锚定（相对 canvas 底/顶）：canvas 高随视口 191~440 变化，
+     百分比找不到统一解（顶席牌出界/底席压操作条二选一）；
+     像素锚定后所有矮屏视口几何恒定：底席卡底永远在操作条上方、
+     顶席牌顶永远贴视口顶。x 仍用百分比（随宽度自适应）。 */
+  /* GG 式围桌：名牌 120×54、对手牌 36×50（探出 34）、本人牌 44×62（探出 44）。
+     纵向像素栈（vh 340~525 恒定）：tt 44~90 / 顶席卡 90~146 / 侧上 154~210 /
+     侧下 218~274 / 底席卡 vh-136 ~ vh-80（大牌探出 44 与公共牌底缘相接）/ bar vh-60~ */
+  /* 公共牌贴桌布上部：与底席大牌区（探出 44px）彻底分离 ——
+     vh 390 时 board 底缘距大牌区顶 5px，vh 越高分离越大 */
+  .board { top: 8% !important; transform: translateX(-50%) !important; }
+  .seats .seat[data-slot="0"] { left: 50% !important; top: auto !important; bottom: 80px !important; }
+  .seats .seat[data-slot="1"] { left: 26% !important; top: auto !important; bottom: 80px !important; }
+  .seats .seat[data-slot="2"] { left: 74% !important; top: auto !important; bottom: 80px !important; }
+  /* 每边三席竖排（用户指定：第三席在左上/右上角）。
+     视觉盒 = 牌探出 26 + 名牌 56 = 82，纵向间隙 5：
+     顶席盒 44~126（牌顶贴页头下缘 44）/ 侧上盒 146~228 / 侧下盒 248~330，盒间隙 20，
+     与底席（卡顶 vh-136 起、x 与边列错开 ≥35）和操作条（vh-60）全程无碰。
+     vh < 460 时 3×82+10 超出可用高度，由下面 max-height:459 档拆列兜底。 */
+  .seats .seat[data-slot="3"] { left: 91% !important; top: 274px !important; bottom: auto !important; width: 96px !important; }
+  .seats .seat[data-slot="4"] { left: 91% !important; top: 172px !important; bottom: auto !important; width: 96px !important; }
+  .seats .seat[data-slot="5"] { left: 89% !important; top: 70px !important; bottom: auto !important; }
+  .seats .seat[data-slot="6"] { left: 11% !important; top: 70px !important; bottom: auto !important; }
+  .seats .seat[data-slot="7"] { left: 9.5% !important; top: 172px !important; bottom: auto !important; width: 96px !important; }
+  .seats .seat[data-slot="8"] { left: 9.5% !important; top: 274px !important; bottom: auto !important; width: 96px !important; }
+
+  .card { width: 46px; height: 64px; border-radius: 6px; }
+  .card .rank { font-size: 26px; }
+  .card .rank.two-char { font-size: 20px; }
+  /* GG 式小手牌：对手牌背只是「一小角」，本人严格 1.2 倍可读 */
+  .card.small { width: 34px; height: 47px; }
+  .card.small .rank { font-size: 21px; }
+  .card.small .rank.two-char { font-size: 16px; }
+  .card.small.big { width: 41px; height: 56px; }
+  .card.small.big .rank { font-size: 26px; }
+  .card.small.big .rank.two-char { font-size: 20px; }
+  .bslot { width: 46px; height: 64px; }
+
+  .seat { width: 112px; height: 56px; border-radius: 10px; }
+  /* peek 20/22：牌带 ±6° 扇形旋转，getBoundingClientRect 的旋转盒比牌面高
+     ~3.3px —— peek 必须把这个溢出也算进去，否则牌底压进名牌的 avatar 行 */
+  .seat { --hole-peek: 20px; }
+  .seat.mine { --hole-peek: 22px; }
+  .info { padding-top: 28px; }               /* peek+旋转盒溢出+行盒舍入：头像行完整避开牌底 */
+  .nm { font-size: 11px; }
+  .chips { font-size: 12px; }
+  .bet { font-size: 13px; }
+  .badge { font-size: 10px; }
+  .seat-sec { font-size: 11px; line-height: 15px; }
+  .info .avatar { width: 26px; height: 26px; }
+  /* 行动反馈从「名牌下方一行」收成名牌右上角的小 chip（GG 式贴头像旁）：
+     底席名牌下方就是操作条，下面那行反馈文字实测压进 bar 顶 11px */
+  .act-flash {
+    top: 3px; right: 4px; margin: 0; bottom: auto;
+    padding: 1px 7px; border-radius: 9px;
+    background: rgba(4, 18, 31, .72);
+    font-size: 10px; line-height: 14px; height: auto; width: auto;
+  }
+
+  .pot b { font-size: 30px; }
+  .phase-tag { font-size: 15px; }
+  .blind-tag { font-size: 13px; }
+  .hand-tag, .eq-tag { font-size: 12px; }
+  .pot-stack { left: 8%; }
+  /* 结算横幅收进「信息条底(逻辑 43)与公共牌顶(逻辑 71)」之间的空带（top 是横幅顶，不是中心）：
+     原先 47% 居中在桌面正压住底席大牌（摊牌时刻挡玩家看自己的牌）。
+     28 高正好填满 43~71；500 宽（x 162~662）与两角顶席（x≤149 / ≥675）分离 ≥13px——
+     注册名上限 12 字，横幅内宽 484 放得下「主池 1,234 · 12字名（两对）」全量文本不打省略号。 */
+  /* 多池竖排（每行独占全宽 484）：并排分宽时双 12 字长名实测缩到 10px
+     仍打省略号；竖排只多 ~20px 高、轻擦公共牌顶部（GG 同款，横幅断言已豁免），
+     换来每行长名 13px 全量显示。 */
+  .win-banner { top: 43px !important; transform: translateX(-50%) !important;
+    max-width: 500px !important; font-size: 13px;
+    gap: 1px; align-items: stretch; padding: 3px 8px; }
+  .win-banner .wb-row { padding: 0 6px; }
+  .win-banner .wb-row + .wb-row { border-left: none; border-top: 1px solid rgba(212, 175, 55, .3); }
+  .win-banner .wb-side { font-size: 12px; opacity: .92; }
+  /* 信息条贴画布顶（已移出 felt）、公共牌锚桌布底 —— 变形桌纵向栈：
+     信息条(0~36) / 公共牌(104~178) / 底席大牌(84~168) / 底席卡 / 操作条(浮层) */
+  /* 信息条收回中央胶囊（不再全宽黑条）：两角让给顶席 —— 顶席牌顶可贴到页头下缘。
+     矮屏只留「阶段 + 底池」：胶囊 423px 会压到上移贴角的顶席（844 档实测），
+     盲注/房间号顶栏右端已有，不在这里重复。 */
+  .table-top { top: 0; left: 50%; right: auto; transform: translateX(-50%); width: auto;
+    flex-direction: row; gap: 12px; justify-content: center; }
+  .table-top .blind-tag, .table-top .hand-tag, .table-top .eq-tag { display: none; }
+}
+
+/* ==================== 矮横屏紧凑档（390~459）：拆列兜底 ====================
+ * vh < 460 时三席边列（盒 82×3+间隙）超出可用高度（vh 390 可用仅 227；
+ * 顶席拆出边列放到上区 25%/75%（与公共牌 x 错开 ≥8），边列只留两席。
+ * 实测 9 人满员局：视觉盒零重叠。 */
+@media (max-height: 459px) and (orientation: landscape) {
+  .seats .seat[data-slot="3"] { top: 210px !important; }
+  .seats .seat[data-slot="4"] { top: 100px !important; }
+  .seats .seat[data-slot="5"] { left: 78% !important; top: 70px !important; }
+  .seats .seat[data-slot="6"] { left: 22% !important; top: 70px !important; }
+  .seats .seat[data-slot="7"] { top: 100px !important; }
+  .seats .seat[data-slot="8"] { top: 210px !important; }
+}
+
+/* ==================== 超矮横屏（≤389）：变形桌的紧凑版 ====================
+ * 旧方案（等比缩放回退）实测糟糕：座位卡缩成 72×29、操作条横在桌心盖住桌面。
+ * 现在画布照旧铺满（沿用上面变形桌的全部规则），本块只做尺寸压缩：
+ *   卡 116×52、大牌 48×68（peek 18）、操作条单行 56 高（prompt/滑杆/预选隐藏）。
+ * 纵向像素栈（vh 320~389 恒定，与视口高无关）：
+ *   tt 44~90 / 顶席卡 90~142 / 侧上 148~200 / 侧下 206~258 /
+ *   底席卡 vh-122 ~ vh-70（大牌探出压公共牌下缘 = GG 手机同款豁免）/ bar vh-60~。
+ * x 轴：底席带五席（9/27.5/50/72.5/91%）在 640 宽下刚好排开（≥2px 间隙）。 */
+@media (max-height: 389px) and (orientation: landscape) {
+  .seats .seat { width: 88px !important; height: 46px !important; border-radius: 9px; }
+  .seats .seat { --hole-peek: 17px !important; }
+  .info { padding-top: 22px; }
+  .seats .seat[data-slot="0"] { left: 50% !important; top: auto !important; bottom: 72px !important; }
+  .seats .seat[data-slot="1"] { left: 27.5% !important; top: auto !important; bottom: 72px !important; }
+  .seats .seat[data-slot="2"] { left: 72.5% !important; top: auto !important; bottom: 72px !important; }
+  /* 同变形档的拆列方案（超矮尺寸）：顶席 22.5/77.5（盒与公共牌 x 错开 ≥10）、
+     侧上卡 124（盒 100~170）、侧下卡 198（盒 174~244，bar 顶 264 之下余 20） */
+  /* x 三段分离：侧席 7/93 贴边、顶席 21.5/78.5 —— 640 宽下顶席与中央胶囊（260）
+     保持 ≥12px、与侧席 x 分离 ≥9px，避免贴顶后三者挤在同一竖带 */
+  .seats .seat[data-slot="3"] { left: 93% !important; top: 196px !important; bottom: auto !important; width: 80px !important; }
+  .seats .seat[data-slot="4"] { left: 93% !important; top: 120px !important; bottom: auto !important; width: 80px !important; }
+  .seats .seat[data-slot="5"] { left: 78.5% !important; top: 70px !important; bottom: auto !important; }
+  .seats .seat[data-slot="6"] { left: 21.5% !important; top: 70px !important; bottom: auto !important; }
+  .seats .seat[data-slot="7"] { left: 7% !important; top: 120px !important; bottom: auto !important; width: 80px !important; }
+  .seats .seat[data-slot="8"] { left: 7% !important; top: 196px !important; bottom: auto !important; width: 80px !important; }
+  .seat.mine { --hole-peek: 14px; }
+  .card { width: 44px; height: 62px; border-radius: 6px; }
+  .card .rank { font-size: 28px; }
+  .card .rank.two-char { font-size: 21px; }
+  .card.small { width: 30px; height: 42px; }
+  .card.small .rank { font-size: 19px; }
+  .card.small .rank.two-char { font-size: 15px; }
+  .card.small.big { width: 36px; height: 50px; }
+  .card.small.big .rank { font-size: 23px; }
+  .card.small.big .rank.two-char { font-size: 18px; }
+  .bslot { width: 44px; height: 62px; }
+  .nm { font-size: 10px; }
+  .chips { font-size: 11px; }
+  .bet { font-size: 12px; }
+  .badge { font-size: 9px; }
+  .seat-sec { font-size: 10px; line-height: 13px; }
+  .act-flash {
+    top: 2px; right: 3px; margin: 0; bottom: auto;
+    padding: 1px 6px; border-radius: 8px;
+    background: rgba(4, 18, 31, .72);
+    font-size: 9px; line-height: 12px; height: auto; width: auto;
+  }
+  .act-flash { font-size: 12px; }
+  /* 操作条压成单行：轮到谁/行动提示在座位胶囊上已有，超矮不再重复一行 */
+  .action-bar { padding: 6px 8px; gap: 6px; width: min(520px, calc(100% - 20px)); }
+  .prompt, .raise-box, .pre-actions, .quick, .timer { display: none !important; }
+  .buttons { gap: 6px; }
+  button.act { min-height: 42px; font-size: 13px; border-radius: 8px; }
+  .board { top: 10% !important; }
+  /* 超矮档上部没有空带（board 紧贴信息条），横幅放「底席卡与操作条之间」
+     的恒定空隙（卡底 vh-118 ~ bar 顶 vh-50，68px）；35 高居中留 ±16 */
+  .win-banner { top: auto !important; bottom: 66px !important;
+    transform: translateX(-50%) !important;
+    font-size: 13px; flex-direction: row !important;
+    gap: 0; align-items: center; padding: 3px 8px; }
+  .win-banner .wb-row { flex: 0 1 auto; min-width: 0; padding: 0 6px; }
+  .win-banner .wb-row + .wb-row { border-left: 1px solid rgba(212, 175, 55, .45); }
+  .win-banner .wb-side { font-size: 12px; }
+}
+/* ==================== 桌面宽屏：沉浸式布局（GG 式）====================
+ * 侧栏与操作条都以浮层存在、不占布局：牌桌吃满视口 —— 1440×900 上
+ * table-fit 从 1084×692 涨到约 1408×828，tscale 0.903 → 约 1.17（+30%）。
+ *
+ * - 侧栏：absolute 右侧、半透明、默认展开（table.js 按 localStorage
+ *   初始化 .open），「记录」按钮可收。盖住画布右上一角（槽位 4 区域）
+ *   是接受的取舍 —— GG 的聊天面板同样浮在桌边，需要盯右侧玩家时收一下。
+ * - 操作条：absolute 右下角竖条，浮在画布右下角的座位真空区（逻辑
+ *   x>1055、y>440 无任何座位）。它在画布外 DOM，不随 --tscale 缩放，
+ *   触摸目标断言（visual-check）继续成立。
+ * - 排布细节（计时在顶/滑杆全宽/按钮两列）与矮屏竖条同一套：两处改动需同步。
+ */
+@media (min-width: 1001px) and (min-height: 601px) {
+  .panel-toggle { display: inline-block; }
+  .layout { grid-template-columns: minmax(0, 1fr); position: relative; }
+
+  .side {
+    /* 只占右侧上半（~55%）：下半要留给右下角的操作条（z-index 25），
+       两个浮层垂直分区、互不重叠 —— 侧栏全高时会把操作条整个盖住（实测抓到） */
+    position: absolute; right: 12px; top: 8px; height: 55%; bottom: auto;
+    width: 300px; z-index: 30; display: none;
+    background: rgba(13, 17, 23, .94);
+    border: 1px solid var(--line); border-radius: 12px; padding: 8px;
+  }
+  .side.open { display: flex; }
+  .side.open .panel { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .side.open .panel.grow { flex: 3 1 auto; }
+
+  /* 操作条规则已全部删除：竖屏旋转玩法上线后（见上方变形档第二查询），
+     竖屏下界面整体旋转 90°、命中同一套「底部中央条」布局 ——
+     这里残留的「右侧竖条」规则曾在同一视口与变形档打架
+     （后写的 clamp(160,14vw,200) 覆盖变形档的中央条，按钮被挤成 34px 竖排）。
+     竖屏下操作条样式完全由变形档 + 超矮档接管。 */
+  .table-main { position: relative; }
 }
 
 /* 超矮屏（如 iPhone SE 横屏 667×375、部分安卓 640×320）——同样只压画布之外的东西。
@@ -447,7 +661,7 @@ button, .room-item, .seat, #raise-slider {
        (max-width: 430px) and (orientation: portrait) {
   .action-bar { padding: 5px 4px; }
   button.act { padding: 7px 3px; font-size: 12px; min-height: 34px; }
-  .prompt { font-size: 10px; margin-bottom: 4px; }
+  .prompt { font-size: 11px; margin-bottom: 4px; }
   .quick button { font-size: 9px; }
   .timer-sec { font-size: 13px; }
 }
@@ -510,12 +724,12 @@ button, .room-item, .seat, #raise-slider {
 }
 .waiting {
   position: absolute; left: 50%; top: 62%; transform: translateX(-50%);
-  color: #cfeee0; font-size: 13px; background: rgba(0,0,0,.35);
+  color: #cfeee0; font-size: 14px; background: rgba(0,0,0,.35);
   padding: 6px 16px; border-radius: 999px;
   display: flex; align-items: center; gap: 10px; white-space: nowrap;
 }
 /* 房主的「开始牌局」：等待阶段唯一该被点的按钮，放在等待浮层里 */
-.waiting #btn-start { padding: 4px 14px; font-size: 13px; }
+.waiting #btn-start { padding: 4px 14px; font-size: 14px; }
 /* display:flex/其他 display 值会盖过 hidden 属性的 UA display:none ——
    全局兜底（真实踩到：预选条/等待浮层/倒计时条都因此常驻显示过）。
    任何「用 hidden 控制显隐」的元素从此免受作者 display 覆盖。 */
@@ -536,7 +750,7 @@ button, .room-item, .seat, #raise-slider {
 }
 .timer-sec {
   min-width: 2.2em; text-align: right;
-  font-weight: 800; font-size: 15px;
+  font-weight: 800; font-size: 16px;
   font-variant-numeric: tabular-nums;   /* 等宽数字，秒数跳动时不会左右抖 */
   color: var(--green);
 }

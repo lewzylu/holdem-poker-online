@@ -490,6 +490,7 @@ async function joinAndSync(c) {
     // 已发的牌必须纹丝不动）；河牌帧结果广播紧随其后、窗口极短，捕到才断言。
     const flyBoards = new Set();
     let flopDeal = null, turnClean = null, turnNew = null, riverClean = null;
+    let boardSlotsOk = null;
     t0 = Date.now();
     while (Date.now() - t0 < 60000 && !res2) {
       await sleep(250);
@@ -506,11 +507,19 @@ async function joinAndSync(c) {
       if (dc.length === 5 && dc[4] === true && riverClean === null) {
         riverClean = !dc.slice(0, 4).some(Boolean);
       }
+      // 五槽固定：任意时刻容器都是 5 个子元素（已发的牌 + 未发位置的透明占位），
+      // 牌钉在各自槽位上 —— 转牌/河牌落下时不再挪动已发的牌
+      const kids = doc.querySelectorAll('#board > *').length;
+      if (boardSlotsOk === null && dc.length >= 3) {
+        boardSlotsOk = kids === 5 &&
+          doc.querySelectorAll('#board > .bslot').length === 5 - dc.length;
+      }
     }
     ok(!flyBoards.has(4) && !flyBoards.has(5),
       '跑马翻牌期间不重复归池（动画出现的棋盘态=' + (flyBoards.size ? [...flyBoards].join('/') : '未捕获') +
       '，转牌/河牌阶段应为空）');
     ok(flopDeal === true, '翻牌三张都挂入场动画（本街全是新牌）');
+    ok(boardSlotsOk === true, '公共牌五槽固定：未发位置是透明占位（子元素恒 5）');
     ok(turnClean === true && turnNew === true,
       '转牌入场动画只挂新牌，翻牌三张不重闪（前3张deal=' + turnClean + '，第4张deal=' + turnNew + '）');
     ok(riverClean !== false, '河牌入场动画只挂新牌' +

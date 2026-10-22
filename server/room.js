@@ -58,6 +58,9 @@ class Room {
     this.sb = opts.sb;
     this.bb = opts.bb;
     this.buyIn = opts.buyIn;
+    // 行动超时（毫秒）：0 = 不限制（建房可选）。默认与旧常量一致。
+    this.actTimeout = opts.actTimeout === undefined
+      ? ACTION_TIMEOUT : Math.max(0, Math.round(opts.actTimeout) * 1000);
     this.seats = [];
     for (let i = 0; i < SEATS; i++) {
       this.seats.push({ index: i, name: null, chips: 0, bot: false, leaveAfterHand: false, pendingRebuy: 0 });
@@ -88,6 +91,9 @@ class Room {
     // 绑定到序号后，只要前端看到的是这一次动作，就一定能看到它的超时归属。
     this._timeoutSeq = new Array(SEATS).fill(-1);
     this._pendingTimeoutSeat = -1;       // 已判超时、等引擎把动作落定的座位
+    // 连续超时计数（按座位）：主动操作清零；攒满 3 次在本手结束后被请离座位。
+    // 只统计「超时自动处置」——预选提交、机器人代打都不算，那不是玩家磨蹭。
+    this._timeoutStreak = new Array(SEATS).fill(0);
     this.logs = [];
     this.chat = [];
     this.ctx = ctx;                      // { send(name,msg), online(name), getUser(name) }
@@ -98,6 +104,7 @@ class Room {
     return {
       id: this.id, title: this.title, host: this.host,
       sb: this.sb, bb: this.bb, buyIn: this.buyIn,
+      actTimeout: Math.round(this.actTimeout / 1000),   // 秒；0 = 不限制
       status: this.status,
       handCount: this.game ? this.game.handCount : 0,
       seated: this.seats.filter(s => s.name).length,
@@ -174,11 +181,17 @@ class Room {
     s.chips = amt;
     s.leaveAfterHand = false;
     s.pendingRebuy = 0;
+    this._timeoutStreak[seatIndex] = 0;              // 新上桌，连超计数从零开始
+    // 上桌大盲（GG 同款规则）：牌局进行中加入的座位，下一手必须额外交一个大盲
+    // —— 否则空降的玩家可以白吃一手「盲注轮不到我」的便宜。
+    // 牌局开始前就坐好的不算：那是正常的第一手，盲注本来就按位置轮转。
     if (this.game) {
+      s.mustPostBB = true;
       const es = this.game.seats[seatIndex];
-      es.name = name; es.chips = amt;
+      es.name = name; es.chips = amt; es.mustPostBB = true;
     }
-    this.pushLog(name + ' 坐下，买入 ' + amt, 'system');
+    this.pushLog(name + ' 坐下，买入 ' + amt +
+      (this.game ? '（下一手需上桌大盲 ' + this.bb + '）' : ''), 'system');
     this.broadcast();
     return { ok: true, amount: amt };
   }
@@ -335,7 +348,7 @@ class Room {
     const amt = this.liveChips(i);
     const who = s.name;
     if (amt > 0) db.addChips(s.name, amt);
-    s.name = null; s.chips = 0; s.leaveAfterHand = false; s.pendingRebuy = 0;
+    s.name = null; s.chips = 0; s.leaveAfterHand = false; s.pendingRebuy = 0; s.mustPostBB = false;
     if (this.game) {
       const es = this.game.seats[i];
       es.chips = 0; es.name = ''; es.folded = true; es.inHand = false;
@@ -362,7 +375,7 @@ class Room {
     this.lastResult = null;
     this.pending = null;
     const cfg = {
-      seats: this.seats.map(s => ({ name: s.name || '', type: 'human', chips: s.chips })),
+      seats: this.seats.map(s => ({ name: s.name || '', type: 'human', chips: s.chips, mustPostBB: !!s.mustPostBB })),
       smallBlind: this.sb, bigBlind: this.bb, aiDelay: 0,
       // 全下被跟住后的逐街停顿：牌已全亮，悬念全在剩下的公共牌里。
       // 1.1s × 最多三条街 —— 练习房足够看清每张牌，也不至于拖节奏。
@@ -421,12 +434,14 @@ class Room {
     return new Promise(resolve => {
       // 这里不要清超时标记：标记已经和「那一次动作的序号」绑定了，
       // 它会随下一次动作产生新序号而自然失效，清反而会让前端在反馈还挂着时丢掉归属。
+      const T = this.actTimeout;                       // 0 = 不限制
       self.pending = {
         index: p.index, name: p.name, legal,
-        resolve, deadline: Date.now() + ACTION_TIMEOUT
+        resolve, deadline: T > 0 ? Date.now() + T : null
       };
       // 超时定时器照常挂着：万一 botDecide 没跑起来，牌局也不会被永久卡住
-      self.pending.timer = setTimeout(() => self.timeoutAction(), ACTION_TIMEOUT);
+      // （不限制档也一样：机器人的 botTimer 只是延时决策，计时器才是兜底）
+      if (T > 0) self.pending.timer = setTimeout(() => self.timeoutAction(), T);
       const s = self.seats[p.index];
       if (s && s.bot) {
         // 机器人不给 30 秒思考，短随机延时后自动出手。延时随机是为了避免
@@ -452,18 +467,29 @@ class Room {
     if (!this.pending) return;
     const legal = this.pending.legal;
     const name = this.pending.name;
+    const idx = this.pending.index;
+    const seat = this.seats[idx];
     // 标记这个座位的下一个动作是「超时自动处置」，供前端把它与主动动作区分开。
     // 只在超时这一条路径上打标记：finishPending 还会被 stand()/stop()/destroy() 调用，
     // 那些不是玩家动作，标记了会产生虚假的「超时」反馈。
-    this._pendingTimeoutSeat = this.pending.index;
+    this._pendingTimeoutSeat = idx;
+    // 连续超时计数：真人磨蹭才算，机器人代打永远抢在超时前出手（计了也到不了 3）。
+    if (seat && !seat.bot) this._timeoutStreak[idx] = (this._timeoutStreak[idx] || 0) + 1;
     this.pushLog(name + ' 超时未操作，自动' + (legal.toCall > 0 ? '弃牌' : '过牌'), 'system');
+    // 连续三次：本手结束后请离座位（不立即退 —— 已投入的盲注/下注还躺在池里，
+    // 手中途回退会把别人的底池抽走。leaveAfterHand 由 processLeaves 在手末处理）。
+    if (seat && !seat.bot && this._timeoutStreak[idx] >= 3) {
+      seat.leaveAfterHand = true;
+      this.pushLog(name + ' 连续三次超时，本手结束后将被请离座位', 'system');
+    }
     this.finishPending(legal.toCall > 0 ? { type: 'fold' } : { type: 'check' });
   }
 
-  /** 玩家掉线：如果在等他行动，把等待时间压缩到 12 秒 */
+  /** 玩家掉线：如果在等他行动，把等待时间压缩到 12 秒。
+   *  不限制超时的房间也一样：掉线的人不能把整桌挂死，12 秒兜底。 */
   onDisconnect(name) {
     if (!this.pending || this.pending.name !== name) return;
-    const left = this.pending.deadline - Date.now();
+    const left = this.pending.deadline ? this.pending.deadline - Date.now() : Infinity;
     const wait = Math.min(left, 12000);
     clearTimeout(this.pending.timer);
     this.pending.deadline = Date.now() + wait;
@@ -477,6 +503,8 @@ class Room {
     if (!action || typeof action !== 'object') return { error: '无效的操作' };
     const ok = ['fold', 'check', 'call', 'raise', 'allin'];
     if (ok.indexOf(action.type) < 0) return { error: '无效的操作' };
+    // 主动操作打断「连续超时」：踢人规则针对的是一直挂机的人
+    this._timeoutStreak[this.pending.index] = 0;
     this.finishPending({ type: action.type, total: action.total });
     return { ok: true };
   }
@@ -546,6 +574,9 @@ class Room {
       if (!s.name || !this.game) return;
       const es = this.game.seats[i];
       if (es && es.inHand) db.recordHand(s.name, es.won);
+      // 上桌大盲标记以引擎为准：引擎发牌后已清（本手交过了），房间侧跟着清；
+      // 引擎还留着 = 本手没轮到发牌（0 筹码），标记保到真正发到的那一手。
+      if (es && !es.mustPostBB) s.mustPostBB = false;
     });
     result.seq = ++this._resultSeq;
     this.lastResult = result;
@@ -705,6 +736,8 @@ class Room {
     if (mySeat >= 0) {
       you.tableChips = this.displayChips(mySeat);   // 身后剩余，与座位显示一致
       you.leaveAfterHand = this.seats[mySeat].leaveAfterHand;
+      you.timeoutStreak = this._timeoutStreak[mySeat] || 0;   // 连续超时次数（供「再超时将被请离」提醒）
+      you.mustPostBB = !!this.seats[mySeat].mustPostBB;       // 下一手要交上桌大盲
       if (g && g.seats[mySeat] && g.seats[mySeat].hole.length === 2) {
         you.hole = g.seats[mySeat].hole;
         if (g.board.length >= 3) {
@@ -734,7 +767,8 @@ class Room {
       // 无人待行动时为 null，避免前端拿着上一次的旧值继续倒数。
       actDeadline: this.pending ? this.pending.deadline : null,
       actSeat: this.pending ? this.pending.index : -1,
-      actTimeout: ACTION_TIMEOUT,   // 让前端按同一时长算进度比例，不必自己写死 30000
+      // 0 = 本房间不限制行动时间：前端据此隐藏倒计时
+      actTimeout: this.actTimeout,
       seats, you
     };
   }

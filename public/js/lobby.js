@@ -7,7 +7,7 @@
     meName: $('#me-name'), meChips: $('#me-chips'), logout: $('#btn-logout'), connTip: $('#conn-tip'),
     claim: $('#btn-claim'),
     list: $('#room-list'), refresh: $('#refresh'),
-    cTitle: $('#c-title'), cSb: $('#c-sb'), cBb: $('#c-bb'), cBuy: $('#c-buyin'),
+    cTitle: $('#c-title'), cSb: $('#c-sb'), cBb: $('#c-bb'), cBuy: $('#c-buyin'), cTo: $('#c-to'),
     create: $('#create'), joinId: $('#join-id'), join: $('#join'),
     roomTitle: $('#room-title'), roomMeta: $('#room-meta'),
     ops: $('#room-ops'),
@@ -70,6 +70,7 @@
       '<div class="ri-main"><b>' + UI.esc(r.title || '牌局') + '</b>' +
       '<span class="rid">' + r.id + '</span></div>' +
       '<div class="ri-sub">盲注 ' + r.sb + '/' + r.bb +
+      ' · 超时 ' + (r.actTimeout > 0 ? r.actTimeout + 's' : '不限') +
       ' · ' + r.seated + ' 人入座 · ' + r.people + ' 人在房间' +
       (r.status === 'playing' ? ' · <i class="live">进行中</i>' : '') + '</div>' +
       '<span class="ri-go">进入 ›</span>' +
@@ -84,7 +85,8 @@
     Net.send({
       type: 'createRoom',
       title: el.cTitle.value.trim(),
-      sb: el.cSb.value, bb: el.cBb.value, buyIn: el.cBuy.value
+      sb: el.cSb.value, bb: el.cBb.value, buyIn: el.cBuy.value,
+      actTimeout: el.cTo.value      // 秒；0 = 不限制（服务端夹 0~600）
     });
   };
   el.join.onclick = () => {
@@ -111,6 +113,7 @@
     el.roomTitle.textContent = room.title + '（' + room.id + '）';
     el.roomMeta.innerHTML =
       '房主 <b>' + UI.esc(room.host || '—') + '</b> · 盲注 <b>' + room.sb + '/' + room.bb + '</b>' +
+      ' · 超时 <b>' + (room.actTimeout > 0 ? room.actTimeout + ' 秒' : '不限制') + '</b>' +
       ' · 状态 <b>' + (room.status === 'playing' ? '进行中 第' + room.handCount + '手' : '等待开始') + '</b>' +
       ' · 在线 ' + room.members.filter(m => m.online).length + '/' + room.members.length;
 

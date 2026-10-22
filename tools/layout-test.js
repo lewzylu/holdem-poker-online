@@ -85,15 +85,30 @@ const CARD_W = num(cardBlock, /width:\s*(\d+)px/, '.card.small width');
 const CARD_H = num(cardBlock, /height:\s*(\d+)px/, '.card.small height');
 const HOLE_OUT = CARD_H - PEEK;   // 牌超出卡片外侧的高度
 const BOX_H = SEAT_H + HOLE_OUT;  // 碰撞盒高 = 卡片 + 牌超出的部分
+// 本人手牌是 GG 式放大（table-gg-immersive-layout）：槽位 0（恒为本人）的
+// 牌更高、peek 更深，碰撞盒单独按 .card.small.big / .seat.mine 的参数计算
+const bigBlock = block(CSS_TABLE, /^\.card\.small\.big \{([\s\S]*?)\}/m, '.card.small.big');
+// .seat.mine 在 table.css 有两个块（既有 background 块 + 本变更加的 peek 块），
+// 取含 --hole-peek 的那个
+const mineRe = /^\.seat\.mine \{([\s\S]*?)\}/gm;
+let mineBlock = null, mm;
+while ((mm = mineRe.exec(CSS_TABLE))) { if (/--hole-peek/.test(mm[1])) { mineBlock = mm[1]; break; } }
+if (!mineBlock) throw new Error('解析不到 .seat.mine 的 --hole-peek 块');
+const CARD_BIG_H = num(bigBlock, /height:\s*(\d+)px/, '.card.small.big height');
+const PEEK_MINE = num(mineBlock, /--hole-peek:\s*(\d+)px/, '.seat.mine --hole-peek');
+const HOLE_OUT_MINE = CARD_BIG_H - PEEK_MINE;
+const BOX_H_MINE = SEAT_H + HOLE_OUT_MINE;
+const MINE_SLOT = 0;               // 槽位 0 恒为本人（seatPos 的旋转基准）
 
 /** 槽位是否属于画布上半部（牌朝下、下注额与徽章翻面），与 table.js 的 seatPos().flip 同源 */
 const isFlip = s => s.y < CANVAS_H / 2;
 
 /** 碰撞盒：卡片 + 牌超出卡片的部分。
  *  牌**统一在卡片上方**（见 table.css 的 .hole —— 不再随 .flip 翻边），
- *  所以所有座位的盒子一律向上扩。 */
+ *  所以所有座位的盒子一律向上扩。槽位 0（本人）的牌是 1.2x 大牌，探出更多。 */
 function boxOf(s) {
-  return { x: s.x - SEAT_W / 2, y: s.y - SEAT_H / 2 - HOLE_OUT, r: s.x + SEAT_W / 2, b: s.y + SEAT_H / 2 };
+  const out = s === SLOTS[MINE_SLOT] ? HOLE_OUT_MINE : HOLE_OUT;
+  return { x: s.x - SEAT_W / 2, y: s.y - SEAT_H / 2 - out, r: s.x + SEAT_W / 2, b: s.y + SEAT_H / 2 };
 }
 /** 槽位中心在 .seats（铺满整块画布）里的百分比坐标，与 table.js 的 seatPos() 同一套算法 */
 function pctOf(s) {
@@ -218,10 +233,13 @@ function cssRules() {
   forbidden.forEach(([re, name]) => ok(!re.test(all), 'CSS 里不存在 ' + name));
 
   ok(!/^\.felt \{[^}]*border-radius:\s*50%/m.test(T), '.felt 不再是椭圆（border-radius 非 50%）');
-  const inMedia = /@media[^{]*\{[^@]*?\.card\.small[^}]*(?:width|height)\s*:/.test(all);
-  ok(!inMedia, '.card.small 的尺寸没有被任何 @media 断点改写');
+  // 矮屏变形桌（app.css）允许把牌放大到 50×70（画布铺满后的全局字号体系），
+  // 但只允许这一个断点改写——其余任何 @media 都会破坏别的档位的几何。
+  // 1.2x 大牌（.card.small.big）同理由 table.css 单处定义。
+  const inMedia = (all.match(/@media[^{]*\{[^@]*?\.card\.small[^}]*(?:width|height)\s*:/g) || []).length;
+  ok(inMedia <= 2, '.card.small 的尺寸至多被两个 @media 断点改写（变形桌放大 + 超矮恢复，实际 ' + inMedia + ' 处）');
   const hits = all.match(/\.card\.small\s*\{[^}]*(?:width|height)\s*:/g) || [];
-  ok(hits.length === 1, '.card.small 的尺寸只有一处定义（实际 ' + hits.length + ' 处）');
+  ok(hits.length <= 3, '.card.small 的尺寸至多 3 处定义（基础 + 1.2x + 变形桌，实际 ' + hits.length + ' 处）');
   // 牌统一在卡片上方，反馈与状态文字统一在下方 —— 两者分处两侧，不可能重叠。
   // 旧约定是「随 .flip 翻到上方」：牌统一到上方之后，那套翻边变体已全部删除，
   // 这里改成断言「不再有翻边」，免得以后又被加回来（那会让上半部四席的牌和反馈叠住）。
@@ -419,12 +437,18 @@ async function loadTable(token, ms = 4000) {
   ok(dirty.length === 0, '空位不含昵称/筹码/底牌/下注额/反馈（异常 ' + dirty.length + ' 个）');
   ok(empties.every(s => s.seatIdx === null), '空位不携带 data-seat（不指向任何服务端座位）');
 
-  // 底牌尺寸一致（hl=摊牌高亮、deal=入场动画是状态类，不是尺寸类，归一化时剥掉）
+  // 底牌尺寸（hl=摊牌高亮、deal=入场动画是状态类，归一化剥掉）：
+  // 对手之间等大；big（GG 式 1.2x）只允许出现在本人座位 —— 旧断言"所有人等大"
+  // 已由 table-gg-immersive-layout 按用户决策改写
   const withCards = occupied.filter(s => s.cardCls.length);
-  const clsSet = [...new Set(withCards.map(s => s.cardCls.map(c => c.replace(/\b(back|hl|deal)\b/g, '').replace(/\s+/g, ' ').trim()).join('|')))];
+  const clsSet = [...new Set(withCards.map(s => s.cardCls.map(c => c.replace(/\b(back|hl|deal|big)\b/g, '').replace(/\s+/g, ' ').trim()).join('|')))];
   ok(withCards.length === 0 || clsSet.length === 1,
-    '所有在座槽位的底牌用同一个尺寸 class（' + JSON.stringify(clsSet) + '）');
+    '所有底牌的基尺寸一致（big 为本人专属附加类，' + JSON.stringify(clsSet) + '）');
   ok(withCards.every(s => s.cardCls.every(c => /\bsmall\b/.test(c))), '底牌都是 .card.small');
+  const bigSeats = occupied.filter(s => s.cardCls.some(c => /\bbig\b/.test(c)));
+  ok(bigSeats.every(s => s.mine) && bigSeats.length <= 1,
+    '1.2x 大牌只出现在本人座位（' + bigSeats.length + ' 个，非本人 ' +
+    bigSeats.filter(s => !s.mine).length + '）');
 
   if (r.err.length) console.log('    页面错误：' + r.err.join(' | '));
 

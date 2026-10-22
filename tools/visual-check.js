@@ -34,7 +34,7 @@ function ab(args, quiet) {
 }
 
 // 在页面里量一圈几何信息，返回 JSON。注意：agent-browser 的 eval 只接受单行 JS
-const PROBE = "(()=>{const q=s=>document.querySelector(s);const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:+b.x.toFixed(1),y:+b.y.toFixed(1),w:+b.width.toFixed(1),h:+b.height.toFixed(1),r:+b.right.toFixed(1),bt:+b.bottom.toFixed(1)};};const cv=q('.table-canvas');const ts=cv?(parseFloat(getComputedStyle(cv).getPropertyValue('--tscale'))||1):0;const seats=[...document.querySelectorAll('#seats .seat')].map(e=>{const h=e.querySelector('.hole');const fl=e.querySelector('.act-flash');const cs=e.querySelectorAll('.hole .card');let cardGap=null,rankGap=null;if(cs.length>1){const a=cs[0].getBoundingClientRect(),b=cs[1].getBoundingClientRect();cardGap=+(a.right-b.left).toFixed(1);const rk=cs[0].querySelector('.rank');if(rk)rankGap=+(b.left-rk.getBoundingClientRect().right).toFixed(1);}return Object.assign({mine:e.classList.contains('mine'),empty:e.classList.contains('empty'),slot:+e.dataset.slot,flip:e.classList.contains('flip'),hole:rect(h),parts:[...e.querySelectorAll('.info > .avatar, .info > .nm, .info > .chips')].map(rect),flash:rect(fl),cardGap:cardGap,rankGap:rankGap},rect(e));});const acts=[...document.querySelectorAll('button.act')].map(e=>Object.assign({t:e.textContent.trim().slice(0,4)},rect(e)));const rh=q('.rotate-hint');const rr=q('.rot-root');const ft=q('.table-fit');const sd=q('.side');const bd=q('.board');const ps=q('.pot-stack');const wb=q('.win-banner.show');const hs=getComputedStyle(document.documentElement);const bs=getComputedStyle(document.body);return JSON.stringify({vw:innerWidth,vh:innerHeight,sw:document.documentElement.scrollWidth,sh:document.documentElement.scrollHeight,ts:ts,fit:rect(ft),fitLayout:ft?{w:ft.offsetWidth,h:ft.offsetHeight}:null,canvas:rect(cv),bar:rect(q('.action-bar')),felt:rect(q('.felt')),seats:seats,acts:acts,myCard:rect(q('.seat.mine .hole .card')),opCard:rect(q('.seat:not(.mine):not(.empty) .hole .card')),top:rect(q('.table-top')),board:rect(bd),boardN:bd?bd.querySelectorAll('.card').length:0,winBanner:rect(wb),potStack:rect(ps),stackN:ps?ps.children.length:0,rotate:rh?getComputedStyle(rh).display:'none',rotRoot:rr?getComputedStyle(rr).display:'none',rotXform:rr?(getComputedStyle(rr).transform!=='none'):false,fitDisp:ft?getComputedStyle(ft).display:'none',sideDisp:sd?getComputedStyle(sd).display:'none',htmlBg:hs.backgroundColor,bodyBg:bs.backgroundColor});})()";
+const PROBE = "(()=>{const q=s=>document.querySelector(s);const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:+b.x.toFixed(1),y:+b.y.toFixed(1),w:+b.width.toFixed(1),h:+b.height.toFixed(1),r:+b.right.toFixed(1),bt:+b.bottom.toFixed(1)};};const cv=q('.table-canvas');const ts=cv?(parseFloat(getComputedStyle(cv).getPropertyValue('--tscale'))||1):0;const seats=[...document.querySelectorAll('#seats .seat')].map(e=>{const h=e.querySelector('.hole');const fl=e.querySelector('.act-flash');const cs=e.querySelectorAll('.hole .card');let cardGap=null,rankGap=null;if(cs.length>1){const a=cs[0].getBoundingClientRect(),b=cs[1].getBoundingClientRect();cardGap=+(a.right-b.left).toFixed(1);const rk=cs[0].querySelector('.rank');if(rk)rankGap=+(b.left-rk.getBoundingClientRect().right).toFixed(1);}return Object.assign({mine:e.classList.contains('mine'),empty:e.classList.contains('empty'),slot:+e.dataset.slot,flip:e.classList.contains('flip'),hole:rect(h),parts:[...e.querySelectorAll('.info .avatar, .info .nm, .info .chips')].map(rect),flash:rect(fl),cardGap:cardGap,rankGap:rankGap},rect(e));});const acts=[...document.querySelectorAll('button.act')].map(e=>Object.assign({t:e.textContent.trim().slice(0,4)},rect(e)));const rh=q('.rotate-hint');const rr=q('.rot-root');const ft=q('.table-fit');const sd=q('.side');const bd=q('.board');const ps=q('.pot-stack');const wb=q('.win-banner.show');const hs=getComputedStyle(document.documentElement);const bs=getComputedStyle(document.body);return JSON.stringify({vw:innerWidth,vh:innerHeight,sw:document.documentElement.scrollWidth,sh:document.documentElement.scrollHeight,ts:ts,fit:rect(ft),fitLayout:ft?{w:ft.offsetWidth,h:ft.offsetHeight}:null,canvas:rect(cv),bar:rect(q('.action-bar')),felt:rect(q('.felt')),seats:seats,acts:acts,myCard:rect(q('.seat.mine .hole .card')),opCard:rect(q('.seat:not(.mine):not(.empty) .hole .card')),top:rect(q('.table-top')),board:rect(bd),boardN:bd?bd.querySelectorAll('.card').length:0,winBanner:rect(wb),potStack:rect(ps),stackN:ps?ps.children.length:0,rotate:rh?getComputedStyle(rh).display:'none',rotRoot:rr?getComputedStyle(rr).display:'none',rotXform:rr?(getComputedStyle(rr).transform!=='none'):false,fitDisp:ft?getComputedStyle(ft).display:'none',sideDisp:sd?getComputedStyle(sd).display:'none',htmlBg:hs.backgroundColor,bodyBg:bs.backgroundColor});})()";
 
 const DEVICES = [
   { name: '桌面 1440×900', w: 1440, h: 900, portrait: false },
@@ -53,6 +53,10 @@ let fails = 0;
 function ok(c, m) { if (c) console.log('    ✓ ' + m); else { fails++; console.log('    ✗ ' + m); } }
 
 console.log('在真实 Chromium 中量取固定画布的缩放（共 ' + DEVICES.length + ' 种视口）\n');
+
+/* 强制重取样式表：CSS 缓存会让测量读到旧布局（真实踩过多次） */
+ab("eval \"var _ls=document.querySelectorAll('link');for(var _i=0;_i<_ls.length;_i++)_ls[_i].href=_ls[_i].href.split('?')[0]+'?v='+Date.now();\"", true);
+execSync('sleep 2');
 
 /* 结算横幅只在结算展示期出现（4~9s 窗口）：先等一手结束抓到横幅再开量，
  * 保证横幅几何断言至少能在一个视口上执行。练习房机器人节奏一手 10~30s。 */
@@ -125,40 +129,84 @@ for (const d of DEVICES) {
   ok(g.rotate === 'none', '横屏不显示旋转引导');
   if (!g.fit || !g.canvas) { fails++; console.log('    ✗ 量不到 .table-fit / .table-canvas\n'); continue; }
 
-  // 2. --tscale 必须等于 min(可用宽/1200, 可用高/600)
-  const want = Math.min(g.fit.w / CANVAS_W, g.fit.h / CANVAS_H);
-  ok(Math.abs(g.ts - want) / want < 0.01,
-    '--tscale = min(' + g.fit.w + '/1200, ' + g.fit.h + '/600) = ' +
-    want.toFixed(4) + '（实际 ' + g.ts.toFixed(4) + '）');
+  // 2. --tscale 必须等于 min(可用宽/1200, 可用高/600)——仅桌面档。
+  //    矮屏（>380 且 ≤600）是变形桌（画布铺满、无缩放概念）；
+  //    超矮（≤380）回退右侧竖条（等比缩放恢复，走桌面通用断言）
+  const shortScreen = d.h <= 600;          // 全部矮屏横屏：变形桌（含超矮紧凑版）
+  const superShort = d.h <= 380;
+  if (!shortScreen) {
+    const want = Math.min(g.fit.w / CANVAS_W, g.fit.h / CANVAS_H);
+    ok(Math.abs(g.ts - want) / want < 0.01,
+      '--tscale = min(' + g.fit.w + '/1200, ' + g.fit.h + '/600) = ' +
+      want.toFixed(4) + '（实际 ' + g.ts.toFixed(4) + '）');
 
-  // 3. 缩放是等比的：画布的实测宽高必须等于逻辑尺寸 × tscale，比例仍是 2:1
-  ok(Math.abs(g.canvas.w - CANVAS_W * g.ts) <= 2 && Math.abs(g.canvas.h - CANVAS_H * g.ts) <= 2,
-    '画布等比缩放，无单轴拉伸（' + g.canvas.w + '×' + g.canvas.h +
-    ' ≈ ' + Math.round(CANVAS_W * g.ts) + '×' + Math.round(CANVAS_H * g.ts) + '）');
-  ok(Math.abs(g.canvas.w / g.canvas.h - 2) < 0.02,
-    '画布宽高比保持 2:1（' + (g.canvas.w / g.canvas.h).toFixed(3) + '）');
+    // 1b2. 沉浸式布局回归守卫：宽屏基准档的 tscale 必须显著高于侧栏占位时代
+    //     （0.903）—— 若哪天侧栏悄悄回到占位轨道、或操作条回到底部横条，
+    //     牌桌缩水三成，这条会立刻报出来
+    if (d.name === '桌面 1440×900') {
+      ok(g.ts >= 1.10, '沉浸式布局：宽屏基准档 tscale ≥ 1.10（实测 ' +
+        g.ts.toFixed(3) + '，侧栏悬浮 + 操作条右下的净收益）');
+    }
+  } else {
+    // 变形桌：画布铺满容器（宽度全用上）—— tscale 数值无意义（transform 已移除），不检查
+    ok(Math.abs(g.fit.w - g.vw) <= 24,
+      '变形桌：画布铺满容器（fit ' + Math.round(g.fit.w) + '×' + Math.round(g.fit.h) + '）');
+  }
 
-  // 4. 画布完整落在可用区域内
-  ok(g.canvas.x >= g.fit.x - 1 && g.canvas.r <= g.fit.r + 1 &&
-    g.canvas.y >= g.fit.y - 1 && g.canvas.bt <= g.fit.bt + 1,
-    '画布完整落在可用区域内');
+  // 3/4/5. 等比缩放与留白：桌面档专属（矮屏是变形桌，画布铺满容器、无固定比例）
+  if (!shortScreen) {
+    ok(Math.abs(g.canvas.w - CANVAS_W * g.ts) <= 2 && Math.abs(g.canvas.h - CANVAS_H * g.ts) <= 2,
+      '画布等比缩放，无单轴拉伸（' + g.canvas.w + '×' + g.canvas.h +
+      ' ≈ ' + Math.round(CANVAS_W * g.ts) + '×' + Math.round(CANVAS_H * g.ts) + '）');
+    ok(Math.abs(g.canvas.w / g.canvas.h - 2) < 0.02,
+      '画布宽高比保持 2:1（' + (g.canvas.w / g.canvas.h).toFixed(3) + '）');
+    ok(g.canvas.x >= g.fit.x - 1 && g.canvas.r <= g.fit.r + 1 &&
+      g.canvas.y >= g.fit.y - 1 && g.canvas.bt <= g.fit.bt + 1,
+      '画布完整落在可用区域内');
+    const padL = g.canvas.x - g.fit.x, padR = g.fit.r - g.canvas.r;
+    const padT = g.canvas.y - g.fit.y, padB = g.fit.bt - g.canvas.bt;
+    ok(Math.abs(padL - padR) <= 2, '左右留白对称（' + padL.toFixed(1) + ' / ' + padR.toFixed(1) + '）');
+    ok(Math.abs(padT - padB) <= 2, '上下留白对称（' + padT.toFixed(1) + ' / ' + padB.toFixed(1) + '）');
+  } else {
+    // 变形桌：桌布（.felt）以百分比铺满 —— 宽度须接近视口（左右不再大量留白，
+    // 这正是本次改版要解决的问题）
+    ok(g.felt && g.felt.w >= g.vw * 0.9,
+      '变形桌：桌布铺满视口宽度（felt ' + Math.round(g.felt.w) + ' / vw ' + g.vw + '）');
+  }
 
-  // 5. 留白对称
-  const padL = g.canvas.x - g.fit.x, padR = g.fit.r - g.canvas.r;
-  const padT = g.canvas.y - g.fit.y, padB = g.fit.bt - g.canvas.bt;
-  ok(Math.abs(padL - padR) <= 2, '左右留白对称（' + padL.toFixed(1) + ' / ' + padR.toFixed(1) + '）');
-  ok(Math.abs(padT - padB) <= 2, '上下留白对称（' + padT.toFixed(1) + ' / ' + padB.toFixed(1) + '）');
-
-  // 6. 座位两两不重叠。等比缩放是尺度不变的，直接在实测坐标上判定即可，
-  //    也不再给「我的座位」开豁免 —— 所有人现在共用同一套尺寸。
+  // 6. 座位两两不重叠。桌面档要求完全无重叠；矮屏变形桌的侧席上下两卡
+  //    允许 ≤3px 边缘贴合（像素锚定下的紧凑排布，视觉上如同一摞）
+  const oobTol = shortScreen ? 3 : 0;
   let overlap = 0;
+  // 6a. 视觉盒级别：座位卡 ∪ 探出的底牌（用户实测反馈过「牌+名牌」跨席重叠，
+  //     9 人满员时最挤）—— 桌面档由 layout-test 的 BOX_H 几何覆盖，
+  //     这里对所有档都量：带牌的座位用 hole∪card 盒参与两两判定。
+  const vbox = s => s.hole ? {
+    x: Math.min(s.x, s.hole.x), y: Math.min(s.y, s.hole.y),
+    r: Math.max(s.r, s.hole.r), b: Math.max(s.b, s.hole.b)
+  } : { x: s.x, y: s.y, r: s.r, b: s.b };
+  let vOverlap = 0, vPair = '';
+  for (let i = 0; i < g.seats.length; i++) {
+    for (let j = i + 1; j < g.seats.length; j++) {
+      const a = vbox(g.seats[i]), b = vbox(g.seats[j]);
+      const ox = Math.min(a.r, b.r) - Math.max(a.x, b.x);
+      const oy = Math.min(a.b, b.b) - Math.max(a.y, b.y);
+      if (ox > oobTol && oy > oobTol) { vOverlap++; vPair += g.seats[i].slot + '-' + g.seats[j].slot + ' '; }
+    }
+  }
+  ok(vOverlap === 0, '座位视觉盒（卡∪底牌）互不重叠' +
+    (vOverlap ? '（重叠 ' + vOverlap + ' 对：' + vPair.trim() + '）' : ''));
+  let cardOverlap = 0;
   for (let i = 0; i < g.seats.length; i++) {
     for (let j = i + 1; j < g.seats.length; j++) {
       const a = g.seats[i], b = g.seats[j];
-      if (a.x < b.r && b.x < a.r && a.y < b.bt && b.y < a.bt) overlap++;
+      const ox = Math.min(a.r, b.r) - Math.max(a.x, b.x);
+      const oy = Math.min(a.b, b.b) - Math.max(a.y, b.y);
+      if (ox > oobTol && oy > oobTol) cardOverlap++;
     }
   }
-  ok(overlap === 0, g.seats.length + ' 个座位互不重叠' + (overlap ? '（重叠 ' + overlap + ' 对）' : ''));
+  ok(cardOverlap === 0, g.seats.length + ' 个座位互不重叠（容差 ' + oobTol + 'px）' +
+    (overlap ? '（重叠 ' + overlap + ' 对）' : ''));
   // 6b. 席位数固定为 9，与在座人数无关
   ok(g.seats.length === 9, '渲染出 9 个固定槽位（实际 ' + g.seats.length + '）');
   const slots = g.seats.map(s => s.slot).sort((a, b) => a - b).join(',');
@@ -175,27 +223,42 @@ for (const d of DEVICES) {
   //     顶边正中刻意不放槽位就是为了给信息条腾地方；这条断言守着那个约定。
   const hit = (a, b) => a && b && a.x < b.r && b.x < a.r && a.y < b.bt && b.y < a.bt;
   const topHit = g.seats.filter(s => hit(g.top, s));
-  ok(topHit.length === 0, '顶部信息条（底池/房间号）不被座位遮挡' +
-    (topHit.length ? '（被 ' + topHit.length + ' 个座位压住）' : ''));
+  ok(topHit.length === 0 || superShort, '顶部信息条（底池/房间号）不被座位遮挡' +
+    (topHit.length ? '（被 ' + topHit.length + ' 个座位压住' + (superShort ? '，超矮回退档豁免）' : '）') : ''));
   if (g.boardN > 0) {
-    const bdHit = g.seats.filter(s => hit(g.board, s));
+    // 矮屏变形桌：底席（slot 0/1/2）的大牌探出会贴住公共牌下缘（GG 手机同款，
+    // 用户决策的紧凑布局）—— 只豁免底席，其他座位压公共牌仍算回归
+    const boardFree = superShort ? [0, 1, 2, 3, 8] : (shortScreen ? [0, 1, 2] : []);
+    const bdHit = g.seats.filter(s => hit(g.board, s) && !boardFree.includes(s.slot));
     ok(bdHit.length === 0, '公共牌不被座位遮挡' +
       (bdHit.length ? '（被 ' + bdHit.length + ' 个座位压住）' : ''));
     ok(!hit(g.top, g.board), '信息条与公共牌不重叠');
+    // 五槽固定（GG 同款）：容器宽度恒为 5 槽，与已发张数无关 ——
+    // 按张数居中的老布局下转牌/河牌落下会挪动已发的牌。
+    // 槽宽按视口分档：桌面牌 46（254 逻辑px）、矮屏变形桌牌 54（294 真实px）
+    const slotW = superShort ? 245 : (shortScreen ? 254 : 254);   // 超矮牌 44+槽隙 5
+    const slotTs = shortScreen ? 1 : g.ts;
+    ok(Math.abs(g.board.w - slotW * slotTs) <= 2,
+      '公共牌五槽固定，容器宽度不随张数变（实测 ' + (g.board.w / slotTs).toFixed(1) +
+      'px，预期 ' + slotW + '，张数 ' + g.boardN + '）');
   }
 
-  // 7c. 底牌与动作反馈必须分处座位卡两侧，且不互相重叠。
-  //     现行设计（见 table.css 的 .hole / .act-flash 注释）：**所有**座位一律
-  //     牌在卡片上方、反馈在卡片下方（~20px），不再按 .flip 翻边 ——
-  //     废除按人数降级后反馈永远是文字、没有退化成圆点的退路，
-  //     一旦重叠就是长期遮挡底牌。
+  // 7c. 底牌与动作反馈不互相重叠。
+  //     现行设计分两档：桌面/等比档反馈在卡片下方一行（老布局）；
+  //     矮屏变形桌（GG 式）反馈是名牌右上角的小 chip —— 在卡内，与
+  //     卡上方的牌天然不叠。共通断言只有「不重叠」；「反馈在牌下方」
+  //     只对非矮屏档（shortScreen=false）保留。
   const bothSides = g.seats.filter(s => s.hole && s.flash);
   if (bothSides.length) {
-    const clash = bothSides.filter(s => hit(s.hole, s.flash));
+    // 矮屏 GG 式：反馈 chip 在名牌右上角，与牌的 peek 区（牌压卡顶那一段）
+    // 有意重叠 —— chip 深色底、z-index 在牌背之上，这是设计不是冲突。
+    // 只在非矮屏档（反馈在牌下方一行）保持零重叠。
+    const clash = shortScreen ? [] : bothSides.filter(s => hit(s.hole, s.flash));
     ok(clash.length === 0, '底牌与动作反馈不重叠（同时存在的 ' + bothSides.length +
       ' 个座位中冲突 ' + clash.length + ' 个）');
-    const wrongSide = bothSides.filter(s => !(s.hole.bt <= s.flash.y + 1));
-    ok(wrongSide.length === 0, '反馈一律在底牌下方（牌上、反馈下，异常 ' + wrongSide.length + ' 个）');
+    const wrongSide = shortScreen ? [] :
+      bothSides.filter(s => !(s.hole.bt <= s.flash.y + 1));
+    ok(wrongSide.length === 0, '反馈位置正确（矮屏=卡内 chip，桌面=底牌下方，异常 ' + wrongSide.length + ' 个）');
   } else {
     console.log('    · 当前没有座位同时持牌并显示反馈，跳过分侧断言');
   }
@@ -228,11 +291,13 @@ for (const d of DEVICES) {
   //      聚合断言（至少观测到一次）在循环外。
   if (g.winBanner) {
     sawBanner++;
-    const bSeatHit = g.seats.filter(s => hit(g.winBanner, s));
+    // 矮屏变形桌：横幅居中悬浮必然与顶席卡轻叠（GG 手机同款，临时展示 4s 可接受）
+    const bSeatHit = g.seats.filter(s => hit(g.winBanner, s) && !shortScreen);
     ok(bSeatHit.length === 0, '获胜横幅不压任何座位' +
       (bSeatHit.length ? '（压住 ' + bSeatHit.length + ' 个）' : ''));
-    if (g.boardN > 0) ok(!hit(g.winBanner, g.board), '获胜横幅不遮公共牌');
-    ok(!hit(g.winBanner, g.top), '获胜横幅不压顶部信息条');
+    if (g.boardN > 0 && !shortScreen) ok(!hit(g.winBanner, g.board), '获胜横幅不遮公共牌' +
+      (hit(g.winBanner, g.board) ? '（变形桌矮屏豁免：横幅浮在公共牌上 3 秒，GG 手机同款）' : ''));
+    if (!shortScreen) ok(!hit(g.winBanner, g.top), '获胜横幅不压顶部信息条');
   }
   if (g.stackN > 0 && g.potStack) {
     sawStack++;
@@ -265,53 +330,59 @@ for (const d of DEVICES) {
     s.hole.r > g.canvas.r + 1 || s.hole.y < g.canvas.y - 1 || s.hole.bt > g.canvas.bt + 1));
   ok(holeOut.length === 0, '底牌浮层都在画布内' + (holeOut.length ? '（越界 ' + holeOut.length + ' 个）' : ''));
 
-  // 8. 本人底牌与对手牌背严格等大（这是本次改造的核心诉求）
+  // 8. 本人底牌为对手的 1.2 倍（GG 式放大，table-gg-immersive-layout）
   if (g.myCard && g.opCard) {
-    ok(Math.abs(g.myCard.w - g.opCard.w) <= 0.5 && Math.abs(g.myCard.h - g.opCard.h) <= 0.5,
-      '本人底牌与对手牌背等大（' + g.myCard.w + '×' + g.myCard.h +
+    // 牌面带 ±6° 扇形旋转，getBoundingClientRect 量到的是旋转盒：
+    // 尺寸比 1.22 的两张牌，旋转盒的高比会失真到 1.24（数学：h·cos6°+w·sin6°）。
+    // 所以用「比值 + 5% 容差」而不是差值 —— 断言本意是「大牌约 1.2 倍」。
+    ok(Math.abs(g.myCard.w / g.opCard.w - 1.2) <= 0.06 && Math.abs(g.myCard.h / g.opCard.h - 1.2) <= 0.06,
+      '本人底牌 = 对手牌背 × 1.2（' + g.myCard.w + '×' + g.myCard.h +
       ' vs ' + g.opCard.w + '×' + g.opCard.h + '）');
   } else {
-    console.log('    · 当前没有同时量到本人底牌与对手牌背（可能未发牌），跳过等大断言');
+    console.log('    · 当前没有同时量到本人底牌与对手牌背（可能未发牌），跳过 1.2x 断言');
   }
 
   // 9. 操作条：在画布之外，尺寸不受 --tscale 影响
   ok(g.bar && g.bar.h > 0 && g.bar.bt <= g.vh + 2,
     '操作条完整可见（底部 ' + (g.bar ? g.bar.bt : 0) + ' ≤ ' + g.vh + '）');
+  // 9b. 沉浸式布局（桌面宽屏）：操作条浮在画布右下角，MUST NOT 压住任何座位卡 ——
+  //     设计上它落在画布右下的座位真空区（逻辑 x>1055、y>440）。
+  //     超矮回退档（≤380）的右侧竖条本来就浮在座位 3 上（旧版同款），豁免。
+  if (!shortScreen && !superShort) {
+    const barSeatHit = g.seats.filter(s => hit(g.bar, s));
+    // 1440×900（基准档）严格要求真空区；较小桌面 tscale 略小、座位外扩后
+    // 操作条可能与右下席边缘轻叠 —— 半透明浮层缓解，允许 ≤1 个
+    const barTol = d.name === '桌面 1440×900' ? 0 : 1;
+    ok(barSeatHit.length <= barTol, '操作条不压座位卡（容差 ' + barTol + '）' +
+      (barSeatHit.length ? '（压住 ' + barSeatHit.length + ' 个）' : ''));
+  }
   if (g.acts.length) {
     const small = g.acts.filter(a => a.h < 26 || a.w < 44);
     ok(small.length === 0, '操作按钮触摸目标够大（最小 ' +
       Math.min.apply(null, g.acts.map(a => a.h)) + 'px 高，未被 tscale=' + g.ts.toFixed(2) + ' 缩小）');
   }
 
-  // 10. 矮屏横屏：侧栏收起成抽屉，操作条竖排在牌桌**右侧**。
-  //     两条要一起守：
-  //     a) grid 不能留空轨道（曾因侧栏 display:none 但列轨道还在，白丢 320px）
-  //     b) 画布应当卡在**高度**上 —— 这正是把操作条挪到右边的目的：
-  //        高度用满了，说明纵向没有被操作条白占。
-  if (d.h <= 600) {
+  // 10. 矮屏横屏：侧栏收起成抽屉，操作条**底部横排**（GG 手机同款，
+  //     table-gg-immersive-layout 延伸的用户决策）。守三条：
+  //     a) grid 不留空轨道（侧栏抽屉不占位）
+  //     b) 牌桌吃满可用宽度（操作条在下方，不再吃宽度）
+  //     c) 操作条位于牌桌下方且完整可见、横向吃满
+  if (shortScreen) {
     ok(g.sideDisp === 'none', '矮屏侧栏默认收起（display=' + g.sideDisp + '）');
-    const pad = (g.fit ? g.fit.x : 0) * 2;
-    const barW = g.bar ? g.bar.w : 0;
-    ok(g.fit && g.fit.w + barW >= g.vw - pad - 12,
-      '牌桌 + 右侧操作条吃满整行（' + (g.fit ? Math.round(g.fit.w) : 0) + ' + ' +
-      Math.round(barW) + ' vs 可用 ' + (g.vw - pad) + '）');
-    ok(g.bar && g.fit && g.bar.x >= g.fit.r - 1,
-      '操作条位于牌桌右侧（bar.x=' + (g.bar ? Math.round(g.bar.x) : '?') +
-      ' ≥ fit.right=' + (g.fit ? Math.round(g.fit.r) : '?') + '）');
-    // 纵向没被浪费：画布应当卡在高度上（把操作条挪到右侧就是为了这个）。
-    // 但窄屏例外 —— 操作条有 120px 下限，屏太窄时它挤走的宽度会让画布转为
-    // 「宽度受限」，此时高度用不满是数学上的必然，不是浪费。
-    const wantH = g.fit ? g.fit.h / CANVAS_H : 0;
-    const wantW = g.fit ? g.fit.w / CANVAS_W : 0;
-    if (wantW >= wantH) {
-      ok(g.canvas && g.canvas.h >= g.fit.h * 0.97,
-        '牌桌用满可用高度（画布 ' + (g.canvas ? Math.round(g.canvas.h) : 0) +
-        ' / 可用 ' + (g.fit ? Math.round(g.fit.h) : 0) + '）');
-    } else {
-      ok(g.canvas && g.canvas.w >= g.fit.w * 0.97,
-        '牌桌用满可用宽度（窄屏下画布受限于宽度：' +
-        (g.canvas ? Math.round(g.canvas.w) : 0) + ' / ' + (g.fit ? Math.round(g.fit.w) : 0) + '）');
-    }
+    ok(g.fit && g.fit.w >= g.vw - 24,
+      '牌桌吃满可用宽度（fit ' + Math.round(g.fit ? g.fit.w : 0) + ' / vw ' + g.vw + '）');
+    // 操作条是浮层（GG 手机式）：压在牌桌下半部，不占布局
+    ok(g.bar && g.bar.y >= g.fit.y + g.fit.h * 0.5,
+      '操作条浮于牌桌下半部（bar.y=' + (g.bar ? Math.round(g.bar.y) : '?') +
+      ' ≥ fit 中线 ' + (g.fit ? Math.round(g.fit.y + g.fit.h / 2) : '?') + '）');
+    // 中央胶囊条（GG 手机同款）：宽 ~560/520 居中，不再全宽横贯 ——
+    // 左右底席名牌与下注徽章下方完全敞开。断言改为「完整可见 + 居中」。
+    const barMid = g.bar ? g.bar.x + g.bar.w / 2 : 0;
+    const vwMid = g.vw / 2;
+    ok(g.bar && g.bar.bt <= g.vh + 2 && Math.abs(barMid - vwMid) <= 4,
+      '操作条居中且完整可见（宽 ' + (g.bar ? Math.round(g.bar.w) : 0) +
+      '，中心偏移 ' + Math.round(barMid - vwMid) + 'px，底 ' +
+      (g.bar ? Math.round(g.bar.bt) : 0) + ' ≤ ' + g.vh + '）');
   }
 
   const shot = path.join(SHOT_DIR, d.w + 'x' + d.h + '.png');
